@@ -8,12 +8,24 @@
     "start": "node dist/server.js",
     "start:deploy": "npm run db:migrate:deploy && node dist/server.js",
     "prisma:generate": "prisma generate",
+    "prisma:generate:mysql": "prisma generate --schema=prisma/schema.mysql.prisma",
+    "prisma:generate:postgresql": "prisma generate --schema=prisma/schema.postgresql.prisma",
+    "prisma:generate:sqlite": "prisma generate --schema=prisma/schema.sqlite.prisma",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:mysql": "prisma migrate dev --schema=prisma/schema.mysql.prisma",
+    "prisma:migrate:postgresql": "prisma migrate dev --schema=prisma/schema.postgresql.prisma",
+    "prisma:migrate:sqlite": "prisma migrate dev --schema=prisma/schema.sqlite.prisma",
     "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:deploy:mysql": "prisma migrate deploy --schema=prisma/schema.mysql.prisma",
+    "db:migrate:deploy:postgresql": "prisma migrate deploy --schema=prisma/schema.postgresql.prisma",
+    "db:migrate:deploy:sqlite": "prisma migrate deploy --schema=prisma/schema.sqlite.prisma",
     "seed:google-config": "tsx src/scripts/seed-google-config.ts",
     "seed:google-config:docker": "tsx src/scripts/seed-google-config-if-present.ts",
     "test:s3": "tsx src/scripts/test-s3-connection.ts",
-    "test:api-upload": "tsx src/scripts/test-api-upload.ts"
+    "test:api-upload": "tsx src/scripts/test-api-upload.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [],
   "author": "",
@@ -42,7 +54,11 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.9.1",
+    "@types/supertest": "^6.0.3",
+    "@vitest/coverage-v8": "^3.2.7",
+    "supertest": "^7.2.2",
     "tsx": "^4.22.4",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.7"
   }
 }

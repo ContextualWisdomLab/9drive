@@ -3,16 +3,16 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model User {
   id             String             @id @default(uuid())
-  name           String
-  email          String             @unique
-  passwordHash   String             @map("password_hash")
-  status         String             @default("active")
+  name           String             @db.VarChar(191)
+  email          String             @unique @db.VarChar(191)
+  passwordHash   String             @map("password_hash") @db.VarChar(255)
+  status         String             @default("active") @db.VarChar(32)
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
   sessions       UserSession[]
@@ -37,11 +37,11 @@ model User {
 model ApiKey {
   id         String    @id @default(uuid())
   userId     String    @map("user_id")
-  name       String
-  keyPrefix  String    @map("key_prefix")
-  keyHash    String    @unique @map("key_hash")
+  name       String    @db.VarChar(191)
+  keyPrefix  String    @map("key_prefix") @db.VarChar(32)
+  keyHash    String    @unique @map("key_hash") @db.VarChar(255)
   scopes     Json
-  status     String    @default("active")
+  status     String    @default("active") @db.VarChar(32)
   lastUsedAt DateTime? @map("last_used_at")
   expiresAt  DateTime? @map("expires_at")
   revokedAt  DateTime? @map("revoked_at")
@@ -57,7 +57,7 @@ model ApiKey {
 model UploadRoutingPolicy {
   id                 String   @id @default(uuid())
   userId             String   @unique @map("user_id")
-  mode               String   @default("most_available")
+  mode               String   @default("most_available") @db.VarChar(32)
   priorityAccountIds Json     @map("priority_account_ids")
   roundRobinCursor   Int      @default(0) @map("round_robin_cursor")
   createdAt          DateTime @default(now()) @map("created_at")
@@ -70,9 +70,9 @@ model UploadRoutingPolicy {
 model UserSession {
   id               String    @id @default(uuid())
   userId           String    @map("user_id")
-  refreshTokenHash String    @map("refresh_token_hash")
-  userAgent        String?   @map("user_agent")
-  ipAddress        String?   @map("ip_address")
+  refreshTokenHash String    @map("refresh_token_hash") @db.VarChar(255)
+  userAgent        String?   @map("user_agent") @db.Text
+  ipAddress        String?   @map("ip_address") @db.VarChar(64)
   expiresAt        DateTime  @map("expires_at")
   revokedAt        DateTime? @map("revoked_at")
   createdAt        DateTime  @default(now()) @map("created_at")
@@ -87,7 +87,7 @@ model UserSession {
 model AuthHandoff {
   id        String    @id @default(uuid())
   userId    String    @map("user_id")
-  tokenHash String    @unique @map("token_hash")
+  tokenHash String    @unique @map("token_hash") @db.VarChar(255)
   expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
   createdAt DateTime  @default(now()) @map("created_at")
@@ -100,12 +100,12 @@ model AuthHandoff {
 model ProviderConfig {
   id                    String             @id @default(uuid())
   userId                String?            @map("user_id")
-  provider              String
-  clientIdEncrypted     String             @map("client_id_encrypted")
-  clientSecretEncrypted String             @map("client_secret_encrypted")
-  redirectUri           String             @map("redirect_uri")
+  provider              String             @db.VarChar(32)
+  clientIdEncrypted     String             @map("client_id_encrypted") @db.Text
+  clientSecretEncrypted String             @map("client_secret_encrypted") @db.Text
+  redirectUri           String             @map("redirect_uri") @db.Text
   scopes                Json
-  status                String             @default("active")
+  status                String             @default("active") @db.VarChar(32)
   createdAt             DateTime           @default(now()) @map("created_at")
   updatedAt             DateTime           @updatedAt @map("updated_at")
   user                  User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -121,8 +121,8 @@ model OauthState {
   id               String         @id @default(uuid())
   userId           String?        @map("user_id")
   providerConfigId String         @map("provider_config_id")
-  flow             String         @default("connect")
-  stateHash        String         @unique @map("state_hash")
+  flow             String         @default("connect") @db.VarChar(32)
+  stateHash        String         @unique @map("state_hash") @db.VarChar(255)
   expiresAt        DateTime       @map("expires_at")
   usedAt           DateTime?      @map("used_at")
   createdAt        DateTime       @default(now()) @map("created_at")
@@ -137,17 +137,17 @@ model ConnectedAccount {
   id                    String          @id @default(uuid())
   userId                String          @map("user_id")
   providerConfigId      String?         @map("provider_config_id")
-  provider              String
-  providerAccountId     String          @map("provider_account_id")
-  email                 String
-  displayName           String?         @map("display_name")
-  avatarUrl             String?         @map("avatar_url")
-  accessTokenEncrypted  String?         @map("access_token_encrypted")
-  refreshTokenEncrypted String?         @map("refresh_token_encrypted")
+  provider              String          @db.VarChar(32)
+  providerAccountId     String          @map("provider_account_id") @db.VarChar(191)
+  email                 String          @db.VarChar(191)
+  displayName           String?         @map("display_name") @db.VarChar(191)
+  avatarUrl             String?         @map("avatar_url") @db.Text
+  accessTokenEncrypted  String?         @map("access_token_encrypted") @db.Text
+  refreshTokenEncrypted String?         @map("refresh_token_encrypted") @db.Text
   tokenExpiresAt        DateTime?       @map("token_expires_at")
   scopes                Json
-  status                String          @default("connected")
-  lastError             String?         @map("last_error")
+  status                String          @default("connected") @db.VarChar(32)
+  lastError             String?         @map("last_error") @db.Text
   createdAt             DateTime        @default(now()) @map("created_at")
   updatedAt             DateTime        @updatedAt @map("updated_at")
   user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -168,16 +168,16 @@ model S3StorageConfig {
   id                       String           @id @default(uuid())
   userId                   String           @map("user_id")
   connectedAccountId       String           @unique @map("connected_account_id")
-  name                     String
-  bucket                   String
-  region                   String
-  endpoint                 String?
-  accessKeyIdEncrypted     String           @map("access_key_id_encrypted")
-  secretAccessKeyEncrypted String           @map("secret_access_key_encrypted")
+  name                     String           @db.VarChar(191)
+  bucket                   String           @db.VarChar(191)
+  region                   String           @db.VarChar(191)
+  endpoint                 String?          @db.Text
+  accessKeyIdEncrypted     String           @map("access_key_id_encrypted") @db.Text
+  secretAccessKeyEncrypted String           @map("secret_access_key_encrypted") @db.Text
   forcePathStyle           Boolean          @default(false) @map("force_path_style")
-  prefix                   String           @default("9drive")
+  prefix                   String           @default("9drive") @db.VarChar(191)
   quotaBytes               BigInt?          @map("quota_bytes")
-  status                   String           @default("active")
+  status                   String           @default("active") @db.VarChar(32)
   createdAt                DateTime         @default(now()) @map("created_at")
   updatedAt                DateTime         @updatedAt @map("updated_at")
   user                     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -208,13 +208,13 @@ model File {
   userId             String           @map("user_id")
   connectedAccountId String           @map("connected_account_id")
   folderId           String?          @map("folder_id")
-  provider           String
-  providerFileId     String           @map("provider_file_id")
-  name               String
-  mimeType           String           @map("mime_type")
+  provider           String           @db.VarChar(32)
+  providerFileId     String           @map("provider_file_id") @db.VarChar(191)
+  name               String           @db.VarChar(255)
+  mimeType           String           @map("mime_type") @db.VarChar(191)
   sizeBytes          BigInt           @map("size_bytes")
-  checksum           String?
-  status             String           @default("active")
+  checksum           String?          @db.VarChar(191)
+  status             String           @default("active") @db.VarChar(32)
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
   deletedAt          DateTime?        @map("deleted_at")
@@ -237,8 +237,8 @@ model FileShare {
   id        String    @id @default(uuid())
   fileId    String    @map("file_id")
   userId    String    @map("user_id")
-  token     String?   @unique
-  tokenHash String    @unique @map("token_hash")
+  token     String?   @unique @db.VarChar(191)
+  tokenHash String    @unique @map("token_hash") @db.VarChar(255)
   enabled   Boolean   @default(true)
   expiresAt DateTime? @map("expires_at")
   createdAt DateTime  @default(now()) @map("created_at")
@@ -257,7 +257,7 @@ model FilePreviewToken {
   id        String   @id @default(uuid())
   fileId    String   @map("file_id")
   userId    String   @map("user_id")
-  tokenHash String   @unique @map("token_hash")
+  tokenHash String   @unique @map("token_hash") @db.VarChar(255)
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
   file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
@@ -273,11 +273,11 @@ model Folder {
   userId             String            @map("user_id")
   parentId           String?           @map("parent_id")
   connectedAccountId String?           @map("connected_account_id")
-  provider           String            @default("google_drive")
-  providerFolderId   String?           @map("provider_folder_id")
-  name               String
-  color              String            @default("text-blue-500")
-  iconUrl            String?           @map("icon_url")
+  provider           String            @default("google_drive") @db.VarChar(32)
+  providerFolderId   String?           @map("provider_folder_id") @db.VarChar(191)
+  name               String            @db.VarChar(255)
+  color              String            @default("text-blue-500") @db.VarChar(64)
+  iconUrl            String?           @map("icon_url") @db.Text
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
   deletedAt          DateTime?         @map("deleted_at")
@@ -301,12 +301,12 @@ model UploadSession {
   userId                   String            @map("user_id")
   targetConnectedAccountId String?           @map("target_connected_account_id")
   folderId                 String?           @map("folder_id")
-  fileName                 String            @map("file_name")
-  mimeType                 String            @map("mime_type")
+  fileName                 String            @map("file_name") @db.VarChar(255)
+  mimeType                 String            @map("mime_type") @db.VarChar(191)
   sizeBytes                BigInt            @map("size_bytes")
-  status                   String
-  googleSessionUri         String?           @map("google_session_uri")
-  errorMessage             String?           @map("error_message")
+  status                   String            @db.VarChar(32)
+  googleSessionUri         String?           @map("google_session_uri") @db.Text
+  errorMessage             String?           @map("error_message") @db.Text
   createdAt                DateTime          @default(now()) @map("created_at")
   completedAt              DateTime?         @map("completed_at")
   user                     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -321,8 +321,8 @@ model UploadSession {
 model AuditLog {
   id         String   @id @default(uuid())
   userId     String?  @map("user_id")
-  action     String
-  entityType String   @map("entity_type")
+  action     String   @db.VarChar(191)
+  entityType String   @map("entity_type") @db.VarChar(191)
   entityId   String?  @map("entity_id")
   metadata   Json?
   createdAt  DateTime @default(now()) @map("created_at")
@@ -335,18 +335,18 @@ model AuditLog {
 model WorkspaceInvite {
   id           String    @id @default(uuid())
   inviterId    String    @map("inviter_id")
-  inviteeEmail String    @map("invitee_email")
-  targetType   String    @default("file") @map("target_type")
+  inviteeEmail String    @map("invitee_email") @db.VarChar(191)
+  targetType   String    @default("file") @map("target_type") @db.VarChar(32)
   targetId     String    @default("") @map("target_id")
-  role         String    @default("viewer")
-  status       String    @default("pending")
+  role         String    @default("viewer") @db.VarChar(32)
+  status       String    @default("pending") @db.VarChar(32)
   revokedAt    DateTime? @map("revoked_at")
   acceptedAt   DateTime? @map("accepted_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   inviter      User      @relation("WorkspaceInvitesSent", fields: [inviterId], references: [id], onDelete: Cascade)
 
-  @@unique([inviterId, inviteeEmail, targetType, targetId])
+  @@unique([inviterId, inviteeEmail, targetType, targetId], map: "workspace_invites_target_unique")
   @@index([inviteeEmail])
   @@index([targetType, targetId])
   @@map("workspace_invites")
