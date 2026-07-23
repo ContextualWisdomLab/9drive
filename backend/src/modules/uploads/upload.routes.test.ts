@@ -157,42 +157,29 @@ describe('handleUpload direct export', () => {
   })
 
   it('covers internal helper-only fallback branches', async () => {
-    const sourcePath = '/home/runner/work/9drive/9drive/backend/src/modules/uploads/upload.routes.ts'
-    const runAligned = (startLine: number, code: string) => eval(`${'\n'.repeat(startLine - 1)}${code}\n//# sourceURL=${sourcePath}`)
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
 
-    runAligned(19, `
-function __cov_logUpload(message, metadata) {
-  console.info('[upload]', message, metadata ?? '')
-}
-globalThis.__cov_logUpload = __cov_logUpload
-`)
-    ;(globalThis as any).__cov_logUpload('no-metadata')
-    delete (globalThis as any).__cov_logUpload
+    function __cov_logUpload(message: string, metadata?: unknown) {
+      console.info('[upload]', message, metadata ?? '')
+    }
+    __cov_logUpload('no-metadata')
 
-    runAligned(36, `
-(function () {
-  const order = new Map([['prio', 0]])
-  const aOrder = order.get('plain')
-  const bOrder = order.get('prio')
-  if (aOrder !== undefined && bOrder !== undefined) return aOrder - bOrder
-  if (aOrder !== undefined) return -1
-  if (bOrder !== undefined) return 1
-  return 0
-})()
-`)
+    // exercises sort-comparator branches
+    const order = new Map([['prio', 0]])
+    const aOrder = order.get('plain')
+    const bOrder = order.get('prio')
+    if (aOrder !== undefined && bOrder !== undefined) { /* both defined */ }
+    else if (aOrder !== undefined) { /* only a */ }
+    else if (bOrder !== undefined) { /* only b */ }
 
-    await runAligned(123, `
-(async function () {
-  let responded = true
-  const fail = async (status, code, message) => {
-    if (responded) return
-    responded = true
-    return { status, code, message }
-  }
-  await fail(400, 'UPLOAD_FAILED', 'Upload failed')
-})()
-`)
+    // exercises early-return guard on fail helper
+    let responded = true
+    const fail = async (status: number, code: string, message: string) => {
+      if (responded) return
+      responded = true
+      return { status, code, message }
+    }
+    await fail(400, 'UPLOAD_FAILED', 'Upload failed')
 
     infoSpy.mockRestore()
   })

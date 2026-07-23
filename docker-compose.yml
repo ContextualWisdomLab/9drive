@@ -30,7 +30,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "5174:80"
+      - "5174:8080"
 
 volumes:
   sqlite_data:
