@@ -53,11 +53,97 @@ frontend/  Vite React app
 
 - Node.js 20+
 - npm
-- MySQL running locally
+- A supported database (MySQL, MariaDB, PostgreSQL, or SQLite)
 - Google Cloud project
 - Google OAuth Client ID and Client Secret
 
-Default database used by this project:
+## Database Support
+
+9Drive supports four database backends via Prisma. Choose the one that fits your environment:
+
+| Database   | Provider schema                    | Migrations directory                         |
+|------------|------------------------------------|----------------------------------------------|
+| MySQL 8+   | `prisma/schema.mysql.prisma`       | `prisma/migrations/` (default)               |
+| MariaDB 10.3+ | `prisma/schema.mariadb.prisma`  | `prisma/migrations/` (shared with MySQL)     |
+| PostgreSQL 13+ | `prisma/schema.postgresql.prisma` | `prisma/migrations-postgresql/`          |
+| SQLite     | `prisma/schema.sqlite.prisma`      | `prisma/migrations-sqlite/`                  |
+
+### MySQL / MariaDB
+
+MySQL and MariaDB share the same Prisma provider (`mysql`) and migrations. MariaDB 10.3+ is fully compatible.
+
+Set `DATABASE_URL` in `backend/.env`:
+
+```env
+# MySQL
+DATABASE_URL="mysql://root@localhost:3306/9drive"
+
+# MariaDB (same format)
+DATABASE_URL="mysql://root@localhost:3306/9drive"
+```
+
+Run migrations:
+
+```bash
+cd backend
+# MySQL
+npm run prisma:migrate:mysql
+
+# MariaDB
+npm run prisma:migrate:mariadb
+```
+
+Deploy to production:
+
+```bash
+# MySQL
+npm run db:migrate:deploy:mysql
+
+# MariaDB
+npm run db:migrate:deploy:mariadb
+```
+
+### PostgreSQL
+
+Set `DATABASE_URL` in `backend/.env`:
+
+```env
+DATABASE_URL="******localhost:5432/9drive"
+```
+
+Run migrations:
+
+```bash
+cd backend
+npm run prisma:migrate:postgresql
+```
+
+Deploy to production:
+
+```bash
+npm run db:migrate:deploy:postgresql
+```
+
+The initial PostgreSQL migration is in `prisma/migrations-postgresql/20260604000000_init/migration.sql`.
+
+### SQLite
+
+SQLite requires no separate database server. It is the default for local development and automated tests.
+
+```env
+DATABASE_URL="file:./dev.db"
+```
+
+Run migrations:
+
+```bash
+cd backend
+npm run prisma:migrate:sqlite
+```
+
+---
+
+Default database used when running the quick-setup script:
 
 ```txt
 host: localhost

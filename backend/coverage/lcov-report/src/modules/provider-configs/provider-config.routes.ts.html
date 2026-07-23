@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">34.04% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>16/47</span>
+                <span class='fraction'>47/47</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/0</span>
+                <span class='fraction'>7/7</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">34.04% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>16/47</span>
+                <span class='fraction'>47/47</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -132,41 +132,41 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
@@ -184,41 +184,41 @@ const schema = z.object({
 })
 &nbsp;
 providerConfigRouter.post('/google', async (req: AuthRequest, res, next) =&gt; {
-<span class="cstat-no" title="statement not covered" >  try {</span>
-<span class="cstat-no" title="statement not covered" >    const body = schema.parse(req.body)</span>
-<span class="cstat-no" title="statement not covered" >    const config = await prisma.providerConfig.create({</span>
-<span class="cstat-no" title="statement not covered" >      data: {</span>
-<span class="cstat-no" title="statement not covered" >        userId: req.user!.id,</span>
-<span class="cstat-no" title="statement not covered" >        provider: 'google_drive',</span>
-<span class="cstat-no" title="statement not covered" >        clientIdEncrypted: encryptText(body.clientId),</span>
-<span class="cstat-no" title="statement not covered" >        clientSecretEncrypted: encryptText(body.clientSecret),</span>
-<span class="cstat-no" title="statement not covered" >        redirectUri: body.redirectUri,</span>
-<span class="cstat-no" title="statement not covered" >        scopes: body.scopes,</span>
-<span class="cstat-no" title="statement not covered" >      },</span>
-<span class="cstat-no" title="statement not covered" >    })</span>
-<span class="cstat-no" title="statement not covered" >    return res.status(201).json({ id: config.id, provider: config.provider, redirectUri: config.redirectUri, scopes: config.scopes, status: config.status })</span>
-<span class="cstat-no" title="statement not covered" >  } catch (error) {</span>
-<span class="cstat-no" title="statement not covered" >    return next(error)</span>
-<span class="cstat-no" title="statement not covered" >  }</span>
-<span class="cstat-no" title="statement not covered" >})</span>
+  try {
+    const body = schema.parse(req.body)
+    const config = await prisma.providerConfig.create({
+      data: {
+        userId: req.user!.id,
+        provider: 'google_drive',
+        clientIdEncrypted: encryptText(body.clientId),
+        clientSecretEncrypted: encryptText(body.clientSecret),
+        redirectUri: body.redirectUri,
+        scopes: body.scopes,
+      },
+    })
+    return res.status(201).json({ id: config.id, provider: config.provider, redirectUri: config.redirectUri, scopes: config.scopes, status: config.status })
+  } catch (error) {
+    return next(error)
+  }
+})
 &nbsp;
 providerConfigRouter.get('/', async (req: AuthRequest, res, next) =&gt; {
-<span class="cstat-no" title="statement not covered" >  try {</span>
-<span class="cstat-no" title="statement not covered" >    const configs = await prisma.providerConfig.findMany({ where: { userId: req.user!.id }, select: { id: true, provider: true, redirectUri: true, scopes: true, status: true, createdAt: true } })</span>
-<span class="cstat-no" title="statement not covered" >    return res.json({ configs })</span>
-<span class="cstat-no" title="statement not covered" >  } catch (error) {</span>
-<span class="cstat-no" title="statement not covered" >    return next(error)</span>
-<span class="cstat-no" title="statement not covered" >  }</span>
-<span class="cstat-no" title="statement not covered" >})</span>
+  try {
+    const configs = await prisma.providerConfig.findMany({ where: { userId: req.user!.id }, select: { id: true, provider: true, redirectUri: true, scopes: true, status: true, createdAt: true } })
+    return res.json({ configs })
+  } catch (error) {
+    return next(error)
+  }
+})
 &nbsp;
 providerConfigRouter.delete('/:id', async (req: AuthRequest, res, next) =&gt; {
-<span class="cstat-no" title="statement not covered" >  try {</span>
-<span class="cstat-no" title="statement not covered" >    await prisma.providerConfig.deleteMany({ where: { id: String(req.params.id), userId: req.user!.id } })</span>
-<span class="cstat-no" title="statement not covered" >    return res.json({ status: 'ok' })</span>
-<span class="cstat-no" title="statement not covered" >  } catch (error) {</span>
-<span class="cstat-no" title="statement not covered" >    return next(error)</span>
-<span class="cstat-no" title="statement not covered" >  }</span>
-<span class="cstat-no" title="statement not covered" >})</span>
+  try {
+    await prisma.providerConfig.deleteMany({ where: { id: String(req.params.id), userId: req.user!.id } })
+    return res.json({ status: 'ok' })
+  } catch (error) {
+    return next(error)
+  }
+})
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -226,7 +226,7 @@ providerConfigRouter.delete('/:id', async (req: AuthRequest, res, next) =&gt; {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-07-23T09:17:59.260Z
+                at 2026-07-23T09:35:06.910Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>
