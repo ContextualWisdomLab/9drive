@@ -315,6 +315,18 @@ describe('syncS3Quota', () => {
     })
   })
 
+  it('treats objects without a size as zero bytes', async () => {
+    mockSend.mockResolvedValue({ Contents: [{ Size: undefined }, { Size: 4 }] })
+
+    await syncS3Quota('account-1')
+
+    expect(mockStorageAccountUpsert).toHaveBeenCalledWith({
+      where: { connectedAccountId: 'account-1' },
+      create: expect.objectContaining({ usedBytes: 4n }),
+      update: expect.objectContaining({ usedBytes: 4n }),
+    })
+  })
+
   it('stores null available bytes when quotaBytes is null', async () => {
     mockFindFirstOrThrow.mockResolvedValue(createConfig({ quotaBytes: null }))
     mockSend.mockResolvedValue({ Contents: [{ Size: 3 }] })

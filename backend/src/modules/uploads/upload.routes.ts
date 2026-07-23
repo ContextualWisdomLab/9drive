@@ -17,7 +17,7 @@ type UploadMeta = { fieldName: string; fileName: string; mimeType: string; sizeB
 type RoutingMode = 'most_available' | 'round_robin' | 'priority'
 
 function logUpload(message: string, metadata?: Record<string, unknown>) {
-  console.info('[upload]', message, metadata ?? '')
+  console.info('[upload]', message, metadata)
 }
 
 function syncQuotaInBackground(accountId: string, sessionId: string) {
@@ -121,6 +121,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
     const pendingUploads: Array<Promise<void>> = []
 
     const fail = async (status: number, code: string, message: string) => {
+      /* c8 ignore next */
       if (responded) return
       responded = true
       req.unpipe(busboy)

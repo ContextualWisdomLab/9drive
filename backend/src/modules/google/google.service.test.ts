@@ -241,6 +241,30 @@ describe('getAuthedGoogleClient', () => {
     expect(result).toBe(client)
   })
 
+  it('uses a fallback expiry time when refreshed credentials omit expiry_date', async () => {
+    const account = createAccount({ tokenExpiresAt: new Date('2024-01-01T00:00:30.000Z') })
+    const client = {
+      setCredentials: vi.fn(),
+      refreshAccessToken: vi.fn().mockResolvedValue({
+        credentials: { access_token: 'new-access-token' },
+      }),
+      getRequestHeaders: vi.fn(),
+    }
+    mockOAuth2.mockImplementationOnce(() => client)
+
+    const result = await getAuthedGoogleClient(account)
+
+    expect(mockConnectedAccountUpdate).toHaveBeenCalledWith({
+      where: { id: 'account-1' },
+      data: {
+        accessTokenEncrypted: 'encrypted:new-access-token',
+        tokenExpiresAt: new Date(new Date('2024-01-01T00:00:00.000Z').getTime() + 3600_000),
+      },
+    })
+    expect(client.setCredentials).toHaveBeenNthCalledWith(2, { access_token: 'new-access-token' })
+    expect(result).toBe(client)
+  })
+
   it('refreshes expiring tokens without updating the database when no access token is returned', async () => {
     const account = createAccount({ tokenExpiresAt: new Date('2024-01-01T00:00:30.000Z') })
     const client = {
@@ -499,5 +523,68 @@ describe('syncGoogleAppFolderFiles', () => {
     const result = await syncGoogleAppFolderFiles('account-1', 'user-1')
 
     expect(result.created).toBe(2)
+  })
+
+  it('skips incomplete Drive metadata and falls back to the app folder parent', async () => {
+    const account = createAccount()
+    mockConnectedAccountFindFirstOrThrow.mockResolvedValue(account)
+    mockDriveFilesList
+      .mockResolvedValueOnce({ data: { files: [{ id: 'drive-folder-1', name: '9drive' }] } })
+      .mockResolvedValueOnce({
+        data: {
+          files: [
+            { id: null, name: 'missing-id.txt', mimeType: 'text/plain', size: '1', parents: ['drive-folder-1'] },
+            { id: 'file-2', name: 'orphan.txt', mimeType: 'text/plain', size: '25' },
+            { id: 'file-3', name: null, mimeType: 'text/plain', size: '9', parents: ['drive-folder-1'] },
+          ],
+          nextPageToken: undefined,
+        },
+      })
+      .mockResolvedValue({ data: { files: [] } })
+    mockFolderFindMany.mockResolvedValue([])
+    mockFileFindMany.mockResolvedValue([])
+    mockFileCreate.mockResolvedValue({})
+    mockConnectedAccountFindUniqueOrThrow.mockResolvedValue(account)
+
+    const result = await syncGoogleAppFolderFiles('account-1', 'user-1')
+
+    expect(result).toEqual({ accountId: 'account-1', created: 1, updated: 0, deleted: 0 })
+    expect(mockFileCreate).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        connectedAccountId: 'account-1',
+        provider: 'google_drive',
+        providerFileId: 'file-2',
+        name: 'orphan.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 25n,
+        status: 'active',
+        folderId: null,
+      },
+    })
+  })
+
+  it('handles undefined Drive file lists and defaults missing sizes to zero', async () => {
+    const account = createAccount()
+    mockConnectedAccountFindFirstOrThrow.mockResolvedValue(account)
+    mockDriveFilesList
+      .mockResolvedValueOnce({ data: { files: [{ id: 'drive-folder-1', name: '9drive' }] } })
+      .mockResolvedValueOnce({ data: { files: undefined, nextPageToken: 'page-2' } })
+      .mockResolvedValueOnce({ data: { files: [{ id: 'file-4', name: 'zero.txt', mimeType: 'text/plain', parents: ['drive-folder-1'] }], nextPageToken: undefined } })
+      .mockResolvedValue({ data: { files: [] } })
+    mockFolderFindMany.mockResolvedValue([])
+    mockFileFindMany.mockResolvedValue([])
+    mockFileCreate.mockResolvedValue({})
+    mockConnectedAccountFindUniqueOrThrow.mockResolvedValue(account)
+
+    const result = await syncGoogleAppFolderFiles('account-1', 'user-1')
+
+    expect(result).toEqual({ accountId: 'account-1', created: 1, updated: 0, deleted: 0 })
+    expect(mockFileCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        providerFileId: 'file-4',
+        sizeBytes: 0n,
+      }),
+    }))
   })
 })

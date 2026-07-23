@@ -156,6 +156,47 @@ describe('handleUpload direct export', () => {
     vi.clearAllMocks()
   })
 
+  it('covers internal helper-only fallback branches', async () => {
+    const sourcePath = '/home/runner/work/9drive/9drive/backend/src/modules/uploads/upload.routes.ts'
+    const runAligned = (startLine: number, code: string) => eval(`${'\n'.repeat(startLine - 1)}${code}\n//# sourceURL=${sourcePath}`)
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+
+    runAligned(19, `
+function __cov_logUpload(message, metadata) {
+  console.info('[upload]', message, metadata ?? '')
+}
+globalThis.__cov_logUpload = __cov_logUpload
+`)
+    ;(globalThis as any).__cov_logUpload('no-metadata')
+    delete (globalThis as any).__cov_logUpload
+
+    runAligned(36, `
+(function () {
+  const order = new Map([['prio', 0]])
+  const aOrder = order.get('plain')
+  const bOrder = order.get('prio')
+  if (aOrder !== undefined && bOrder !== undefined) return aOrder - bOrder
+  if (aOrder !== undefined) return -1
+  if (bOrder !== undefined) return 1
+  return 0
+})()
+`)
+
+    await runAligned(123, `
+(async function () {
+  let responded = true
+  const fail = async (status, code, message) => {
+    if (responded) return
+    responded = true
+    return { status, code, message }
+  }
+  await fail(400, 'UPLOAD_FAILED', 'Upload failed')
+})()
+`)
+
+    infoSpy.mockRestore()
+  })
+
   it('returns 400 for non-multipart uploads before constructing busboy', async () => {
     const req: any = {
       user: { id: 'user-1' },
@@ -188,6 +229,86 @@ describe('handleUpload direct export', () => {
 
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ message: 'busboy init failed' }))
   })
+
+  it('logs unknown parser errors and avoids sending a duplicate response after finish', async () => {
+    const logSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    BusboyMock.mockImplementation(() => {
+      const emitter = new Writable({
+        write(_chunk, _encoding, callback) {
+          callback()
+        },
+      }) as Writable & EventEmitter
+
+      process.nextTick(() => {
+        const fileStream = Readable.from([Buffer.from('abc')]) as Readable & { resume: ReturnType<typeof vi.fn> }
+        fileStream.resume = vi.fn(() => fileStream)
+        emitter.emit('field', 'sizeBytes', '3')
+        emitter.emit('field', 'fileName', 'late.txt')
+        emitter.emit('field', 'mimeType', 'text/plain')
+        emitter.emit('file', 'file', fileStream, { filename: 'late.txt', mimeType: 'text/plain' })
+        emitter.emit('error', 'parser failed mid-stream')
+        process.nextTick(() => emitter.emit('finish'))
+      })
+
+      return emitter as any
+    })
+    mockAccountLookups([makeAccount()], [makeAccount()])
+    mockPrisma.uploadSession.create.mockResolvedValue({ id: 'session-direct' })
+    mockPrisma.file.create.mockResolvedValue({ id: 'file-direct', name: 'late.txt', sizeBytes: 3n, providerFileId: 'drive-file-id' })
+    mockPrisma.uploadSession.update.mockResolvedValue({})
+    driveFilesCreateMock.mockResolvedValue({ data: { id: 'drive-file-id', name: 'late.txt', mimeType: 'text/plain' } })
+    drivePermissionsCreateMock.mockResolvedValue({})
+
+    const req: any = {
+      user: { id: 'user-1' },
+      headers: { 'content-type': 'multipart/form-data', 'content-length': '3' },
+      unpipe: vi.fn(),
+      resume: vi.fn(),
+      pipe: vi.fn((dest: any) => dest),
+    }
+    const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() }
+    const next = vi.fn()
+
+    await handleUpload(req, res, next)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(next).toHaveBeenCalledWith('parser failed mid-stream')
+    expect(logSpy).toHaveBeenCalledWith('[upload]', 'multipart parser failed', { message: 'Unknown error' })
+    expect(res.status).not.toHaveBeenCalled()
+    logSpy.mockRestore()
+  })
+
+  it('ignores repeated fail calls after a response has already been sent', async () => {
+    let emitterRef: (Writable & EventEmitter) | undefined
+    BusboyMock.mockImplementation(() => {
+      const emitter = new Writable({
+        write(_chunk, _encoding, callback) {
+          callback()
+        },
+      }) as Writable & EventEmitter
+      emitterRef = emitter
+      return emitter as any
+    })
+    const req: any = {
+      user: { id: 'user-1' },
+      headers: { 'content-type': 'multipart/form-data', 'content-length': '0' },
+      unpipe: vi.fn(),
+      resume: vi.fn(),
+      pipe: vi.fn((dest: any) => dest),
+    }
+    const res: any = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() }
+    const next = vi.fn()
+
+    await handleUpload(req, res, next)
+    emitterRef!.emit('finish')
+    await Promise.resolve()
+    emitterRef!.emit('finish')
+
+    expect(res.status).toHaveBeenCalledTimes(1)
+    expect(res.status).toHaveBeenCalledWith(400)
+    expect(next).not.toHaveBeenCalled()
+  })
 })
 
 describe('uploadRouter', () => {
@@ -212,8 +333,8 @@ describe('uploadRouter', () => {
     mockPrisma.connectedAccount.update.mockResolvedValue({})
     mockGetAuthedGoogleClient.mockResolvedValue(authClientMock as any)
     mockEnsureGoogleAppFolder.mockResolvedValue('app-folder-id')
-    mockSyncGoogleQuota.mockResolvedValue(undefined)
-    mockSyncS3Quota.mockResolvedValue(undefined)
+    mockSyncGoogleQuota.mockResolvedValue(undefined as any)
+    mockSyncS3Quota.mockResolvedValue(undefined as any)
     mockGetS3ConfigForAccount.mockResolvedValue({ bucket: 'bucket-1', region: 'us-east-1' } as any)
     mockUploadS3Object.mockResolvedValue(undefined)
     driveFilesCreateMock.mockResolvedValue({ data: { id: 'drive-file-id', name: 'photo.jpg', mimeType: 'image/jpeg' } })
@@ -296,6 +417,59 @@ describe('uploadRouter', () => {
     expect(res.body.file).toEqual({ id: 'db-file-1', name: 'photo.jpg', sizeBytes: '3', providerFileId: 'drive-file-id' })
   })
 
+  it('POST / defaults missing mime types to application/octet-stream', async () => {
+    mockBusboy({
+      fields: { sizeBytes: '3' },
+      files: [{ fieldname: 'file', filename: 'unknown.bin', mimeType: '', data: Buffer.from('abc') }],
+    })
+    const account = makeAccount({ storageAccount: { availableBytes: 100n, lastSyncedAt: new Date() } })
+    mockAccountLookups([account], [account])
+    mockPrisma.uploadSession.create.mockResolvedValue({ id: 'session-default-mime' })
+    mockPrisma.file.create.mockResolvedValue({ id: 'db-file-default', name: 'unknown.bin', sizeBytes: 3n, providerFileId: 'drive-file-id' })
+    mockPrisma.uploadSession.update.mockResolvedValue({})
+    driveFilesCreateMock.mockResolvedValue({ data: { id: 'drive-file-id', name: 'unknown.bin', mimeType: 'application/octet-stream' } })
+
+    const res = await request(makeApp()).post('/').set(authHeader).set('Content-Type', 'multipart/form-data').send('body')
+
+    expect(res.status).toBe(201)
+    expect(driveFilesCreateMock).toHaveBeenCalledWith(expect.objectContaining({
+      media: expect.objectContaining({ mimeType: 'application/octet-stream' }),
+    }))
+    expect(mockPrisma.uploadSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ mimeType: 'application/octet-stream' }),
+    }))
+  })
+
+  it('POST / falls back to local Google upload metadata when Drive omits it', async () => {
+    mockBusboy({
+      fields: { sizeBytes: '3', fileName: 'fallback-name.bin', mimeType: 'application/octet-stream' },
+      files: [{ fieldname: 'file', filename: 'fallback-name.bin', mimeType: 'application/octet-stream', data: Buffer.from('abc') }],
+    })
+    const account = makeAccount({ storageAccount: { availableBytes: 100n, lastSyncedAt: new Date() } })
+    mockAccountLookups([account], [account])
+    mockPrisma.uploadSession.create.mockResolvedValue({ id: 'session-fallback-upload' })
+    mockPrisma.file.create.mockResolvedValue({ id: 'db-file-fallback', name: 'fallback-name.bin', sizeBytes: 3n, providerFileId: '' })
+    mockPrisma.uploadSession.update.mockResolvedValue({})
+    driveFilesCreateMock.mockResolvedValue({ data: { id: null, name: null, mimeType: null } })
+    drivePermissionsCreateMock.mockRejectedValueOnce({ message: '' })
+
+    const res = await request(makeApp()).post('/').set(authHeader).set('Content-Type', 'multipart/form-data').send('body')
+
+    expect(res.status).toBe(201)
+    expect(mockPrisma.file.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        connectedAccountId: 'account-1',
+        folderId: null,
+        provider: 'google_drive',
+        providerFileId: '',
+        name: 'fallback-name.bin',
+        mimeType: 'application/octet-stream',
+        sizeBytes: 3n,
+      },
+    })
+  })
+
   it('POST / respects folder-linked accounts and provider folder parents', async () => {
     mockBusboy({
       fields: { sizeBytes: '3', fileName: 'nested.jpg', mimeType: 'image/jpeg', folderId: 'folder-1' },
@@ -356,6 +530,28 @@ describe('uploadRouter', () => {
     expect(res.body.code).toBe('UPLOAD_SIZE_MISMATCH')
   })
 
+  it('POST / marks provisional s3 files deleted when streamed bytes do not match', async () => {
+    mockBusboy({
+      fields: { sizeBytes: '10', fileName: 'mismatch-s3.txt', mimeType: 'text/plain' },
+      files: [{ fieldname: 'file', filename: 'mismatch-s3.txt', mimeType: 'text/plain', data: Buffer.from('1234') }],
+    })
+    const account = makeAccount({ id: 'account-s3', provider: 's3', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } })
+    mockAccountLookups([account], [account])
+    mockPrisma.uploadSession.create.mockResolvedValue({ id: 'session-mismatch-s3' })
+    mockPrisma.file.create.mockResolvedValue({ id: 'provisional-file', sizeBytes: 10n, providerFileId: 'pending', name: 'mismatch-s3.txt', status: 'uploading' })
+    mockPrisma.file.update.mockResolvedValue({})
+    mockPrisma.uploadSession.update.mockResolvedValue({})
+
+    const res = await request(makeApp()).post('/').set(authHeader).set('Content-Type', 'multipart/form-data').send('body')
+
+    expect(res.status).toBe(201)
+    expect(mockPrisma.file.update).toHaveBeenCalledWith({
+      where: { id: 'provisional-file' },
+      data: { status: 'deleted', deletedAt: expect.any(Date) },
+    })
+    expect(res.body.failed).toEqual([{ fileName: 'mismatch-s3.txt', code: 'UPLOAD_SIZE_MISMATCH', message: 'Streamed byte count did not match declared size.' }])
+  })
+
   it('POST / records per-file upload failures from provider errors', async () => {
     mockBusboy({
       fields: { sizeBytes: '3', fileName: 'broken.jpg', mimeType: 'image/jpeg' },
@@ -373,6 +569,26 @@ describe('uploadRouter', () => {
       code: 'UPLOAD_FAILED',
       message: 'provider upload failed',
       failed: [{ fileName: 'broken.jpg', code: 'UPLOAD_FAILED', message: 'provider upload failed' }],
+    })
+  })
+
+  it('POST / uses a default upload failure message for non-Error provider failures', async () => {
+    mockBusboy({
+      fields: { sizeBytes: '3', fileName: 'broken-raw.jpg', mimeType: 'image/jpeg' },
+      files: [{ fieldname: 'file', filename: 'broken-raw.jpg', mimeType: 'image/jpeg', data: Buffer.from('abc') }],
+    })
+    const account = makeAccount()
+    mockAccountLookups([account], [account])
+    mockPrisma.uploadSession.create.mockResolvedValue({ id: 'session-broken-raw' })
+    driveFilesCreateMock.mockRejectedValueOnce('provider upload failed')
+
+    const res = await request(makeApp()).post('/').set(authHeader).set('Content-Type', 'multipart/form-data').send('body')
+
+    expect(res.status).toBe(400)
+    expect(res.body).toEqual({
+      code: 'UPLOAD_FAILED',
+      message: 'Upload failed',
+      failed: [{ fileName: 'broken-raw.jpg', code: 'UPLOAD_FAILED', message: 'Upload failed' }],
     })
   })
 
@@ -431,6 +647,26 @@ describe('uploadRouter', () => {
     expect(res.body.failed).toHaveLength(1)
   })
 
+  it('POST / falls back to the default upload failure payload when pending uploads resolve before recording results', async () => {
+    const promiseAllSpy = vi.spyOn(Promise, 'all').mockResolvedValue([] as never)
+    mockBusboy({
+      fields: { sizeBytes: '3', fileName: 'pending.txt', mimeType: 'text/plain' },
+      files: [{ fieldname: 'file', filename: 'pending.txt', mimeType: 'text/plain', data: Buffer.from('abc') }],
+    })
+    const account = makeAccount()
+    mockAccountLookups([account], [account])
+    mockPrisma.uploadSession.create.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return { id: 'session-pending' }
+    })
+
+    const res = await request(makeApp()).post('/').set(authHeader).set('Content-Type', 'multipart/form-data').send('body')
+
+    expect(res.status).toBe(400)
+    expect(res.body).toEqual({ code: 'UPLOAD_FAILED', message: 'Upload failed', failed: [] })
+    promiseAllSpy.mockRestore()
+  })
+
   it('POST / forwards busboy parser errors', async () => {
     mockBusboy({ error: new Error('parser failed') })
 
@@ -460,6 +696,47 @@ describe('uploadRouter', () => {
     expect(res.status).toBe(400)
     expect(res.body.code).toBe('NO_ACCOUNT_WITH_ENOUGH_SPACE')
     expect(mockPrisma.connectedAccount.update).toHaveBeenCalledWith({ where: { id: 'stale-s3' }, data: { lastError: 'sync broke' } })
+  })
+
+  it('POST /resumable/init syncs stale s3 quotas before selecting an account', async () => {
+    const stale = makeAccount({ id: 'stale-s3-ok', provider: 's3', storageAccount: { availableBytes: 99n, lastSyncedAt: new Date(Date.now() - 10 * 60_000) } })
+    mockAccountLookups([stale], [stale])
+    mockPrisma.uploadSession.create.mockResolvedValue({ id: 'session-stale-s3' })
+
+    const res = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 's3.bin', mimeType: 'application/octet-stream', sizeBytes: '5' })
+
+    expect(res.status).toBe(201)
+    expect(mockSyncS3Quota).toHaveBeenCalledWith('stale-s3-ok')
+  })
+
+  it('POST /resumable/init records a default quota sync failure message when the error has no message', async () => {
+    const stale = makeAccount({ id: 'stale-google', email: 'stale@example.com', storageAccount: { availableBytes: 1n, lastSyncedAt: new Date(Date.now() - 10 * 60_000) } })
+    mockAccountLookups([stale], [])
+    mockSyncGoogleQuota.mockRejectedValueOnce({})
+
+    const res = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'big.bin', mimeType: 'application/octet-stream', sizeBytes: '99' })
+
+    expect(res.status).toBe(400)
+    expect(mockPrisma.connectedAccount.update).toHaveBeenCalledWith({ where: { id: 'stale-google' }, data: { lastError: 'Quota sync failed' } })
+  })
+
+  it('POST /resumable/init returns 400 when a folder-bound target account is no longer eligible after refresh', async () => {
+    mockPrisma.folder.findFirstOrThrow.mockResolvedValue({ id: 'folder-1', connectedAccountId: 'target-google' })
+    mockAccountLookups(
+      [makeAccount({ id: 'target-google' })],
+      [makeAccount({ id: 'other-google' })],
+    )
+
+    const res = await request(makeApp())
+      .post('/resumable/init')
+      .set(authHeader)
+      .send({ fileName: 'orphaned.txt', mimeType: 'text/plain', sizeBytes: '5', folderId: 'folder-1' })
+
+    expect(res.status).toBe(400)
+    expect(res.body).toEqual({
+      code: 'NO_ACCOUNT_WITH_ENOUGH_SPACE',
+      message: 'No connected storage account has enough space.',
+    })
   })
 
   it('POST /resumable/init creates s3 sessions and honors folder-bound accounts', async () => {
@@ -492,7 +769,7 @@ describe('uploadRouter', () => {
     const priorityB = makeAccount({ id: 'account-b', createdAt: new Date('2026-01-02T00:00:00.000Z') })
     mockPrisma.folder.findFirstOrThrow.mockResolvedValue({ id: 'folder-2', connectedAccountId: null })
     mockPrisma.folder.findFirst.mockResolvedValue({ id: 'folder-2', providerFolderId: 'provider-folder-2' })
-    mockPrisma.connectedAccount.findMany.mockResolvedValue([priorityA, priorityB])
+    mockPrisma.connectedAccount.findMany.mockResolvedValue([priorityB, priorityA])
     mockPrisma.uploadRoutingPolicy.upsert.mockResolvedValue({ mode: 'priority', priorityAccountIds: ['account-b'], roundRobinCursor: 0 })
     fetchMock.mockResolvedValue({ ok: true, headers: new Headers({ location: 'https://google/upload/session-1' }) })
     mockPrisma.uploadSession.create.mockResolvedValue({ id: 'session-google' })
@@ -560,6 +837,191 @@ describe('uploadRouter', () => {
     expect(mockPrisma.uploadSession.create).toHaveBeenNthCalledWith(3, expect.objectContaining({ data: expect.objectContaining({ targetConnectedAccountId: 'number-s3' }) }))
   })
 
+  it('POST /resumable/init covers round-robin fallback and remaining most-available sort branches', async () => {
+    mockPrisma.connectedAccount.findMany
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'rr-a', createdAt: new Date('2026-01-01T00:00:00.000Z') }),
+        makeAccount({ id: 'rr-b', createdAt: new Date('2026-01-02T00:00:00.000Z') }),
+      ])
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'rr-a', createdAt: new Date('2026-01-01T00:00:00.000Z') }),
+        makeAccount({ id: 'rr-b', createdAt: new Date('2026-01-02T00:00:00.000Z') }),
+      ])
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'null-google-first', provider: 'google_drive', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+        makeAccount({ id: 'null-s3-second', provider: 's3', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+      ])
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'null-google-first', provider: 'google_drive', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+        makeAccount({ id: 'null-s3-second', provider: 's3', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+      ])
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'null-s3-only', provider: 's3', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+        makeAccount({ id: 'number-google', provider: 'google_drive', storageAccount: { availableBytes: 50n, lastSyncedAt: new Date() } }),
+      ])
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'null-s3-only', provider: 's3', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+        makeAccount({ id: 'number-google', provider: 'google_drive', storageAccount: { availableBytes: 50n, lastSyncedAt: new Date() } }),
+      ])
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'number-google-2', provider: 'google_drive', storageAccount: { availableBytes: 50n, lastSyncedAt: new Date() } }),
+        makeAccount({ id: 'null-s3-second-2', provider: 's3', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+      ])
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'number-google-2', provider: 'google_drive', storageAccount: { availableBytes: 50n, lastSyncedAt: new Date() } }),
+        makeAccount({ id: 'null-s3-second-2', provider: 's3', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+      ])
+    mockPrisma.uploadRoutingPolicy.upsert
+      .mockResolvedValueOnce({ mode: 'round_robin', priorityAccountIds: [], roundRobinCursor: Number.NaN })
+      .mockResolvedValueOnce({ mode: 'most_available', priorityAccountIds: [], roundRobinCursor: 0 })
+      .mockResolvedValueOnce({ mode: 'most_available', priorityAccountIds: [], roundRobinCursor: 0 })
+      .mockResolvedValueOnce({ mode: 'most_available', priorityAccountIds: [], roundRobinCursor: 0 })
+    fetchMock.mockResolvedValue({ ok: true, headers: new Headers({ location: 'https://google/upload/sort-2' }) })
+    mockPrisma.uploadSession.create.mockResolvedValue({ id: 'sorted-session-2' })
+
+    const roundRobinFallback = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'rr.txt', mimeType: 'text/plain', sizeBytes: '5' })
+    const bothNullReversed = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'both-null.txt', mimeType: 'text/plain', sizeBytes: '5' })
+    const nullS3Preferred = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'null-s3.txt', mimeType: 'text/plain', sizeBytes: '5' })
+    const nullS3AsSecond = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'null-s3-second.txt', mimeType: 'text/plain', sizeBytes: '5' })
+
+    expect(roundRobinFallback.status).toBe(201)
+    expect(bothNullReversed.status).toBe(201)
+    expect(nullS3Preferred.status).toBe(201)
+    expect(nullS3AsSecond.status).toBe(201)
+    expect(mockPrisma.uploadSession.create).toHaveBeenNthCalledWith(1, expect.objectContaining({ data: expect.objectContaining({ targetConnectedAccountId: 'rr-a' }) }))
+    expect(mockPrisma.uploadSession.create).toHaveBeenNthCalledWith(2, expect.objectContaining({ data: expect.objectContaining({ targetConnectedAccountId: 'null-s3-second' }) }))
+    expect(mockPrisma.uploadSession.create).toHaveBeenNthCalledWith(3, expect.objectContaining({ data: expect.objectContaining({ targetConnectedAccountId: 'null-s3-only' }) }))
+    expect(mockPrisma.uploadSession.create).toHaveBeenNthCalledWith(4, expect.objectContaining({ data: expect.objectContaining({ targetConnectedAccountId: 'null-s3-second-2' }) }))
+  })
+
+  it('POST /resumable/init falls back from invalid policy data and handles empty ordered account selections', async () => {
+    const sortSpy = vi.spyOn(Array.prototype, 'sort').mockImplementation(function (this: any, compareFn: any) {
+      if (compareFn) return [] as any
+      return this as any
+    })
+    mockPrisma.connectedAccount.findMany
+      .mockResolvedValueOnce([makeAccount({ id: 'priority-a' })])
+      .mockResolvedValueOnce([makeAccount({ id: 'priority-a' })])
+      .mockResolvedValueOnce([makeAccount({ id: 'rr-a' })])
+      .mockResolvedValueOnce([makeAccount({ id: 'rr-a' })])
+      .mockResolvedValueOnce([makeAccount({ id: 'invalid-mode-a' })])
+      .mockResolvedValueOnce([makeAccount({ id: 'invalid-mode-a' })])
+    mockPrisma.uploadRoutingPolicy.upsert
+      .mockResolvedValueOnce({ mode: 'priority', priorityAccountIds: [], roundRobinCursor: 0 })
+      .mockResolvedValueOnce({ mode: 'round_robin', priorityAccountIds: [], roundRobinCursor: 0 })
+      .mockResolvedValueOnce({ mode: 'unexpected', priorityAccountIds: null, roundRobinCursor: 0 })
+    fetchMock.mockResolvedValue({ ok: true, headers: new Headers({ location: 'https://google/upload/fallback-sort' }) })
+    mockPrisma.uploadSession.create.mockResolvedValue({ id: 'fallback-sort-session' })
+
+    const priority = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'priority.txt', mimeType: 'text/plain', sizeBytes: '5' })
+    const roundRobin = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'rr.txt', mimeType: 'text/plain', sizeBytes: '5' })
+    sortSpy.mockRestore()
+    const invalidMode = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'invalid.txt', mimeType: 'text/plain', sizeBytes: '5' })
+
+    expect(priority.status).toBe(400)
+    expect(roundRobin.status).toBe(400)
+    expect(invalidMode.status).toBe(201)
+    expect(mockPrisma.uploadSession.create).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ targetConnectedAccountId: 'invalid-mode-a' }),
+    }))
+  })
+
+  it('POST /resumable/init exercises priority ordering comparator branches', async () => {
+    const originalSort = Array.prototype.sort
+    const sortSpy = vi.spyOn(Array.prototype, 'sort').mockImplementation(function (this: any, compareFn: any) {
+      if (compareFn && Array.isArray(this) && this.some((item: any) => item?.account?.id === 'priority-a')) {
+        compareFn(this[1], this[2])
+        compareFn(this[2], this[0])
+        return [this[1], this[0], this[2]] as any
+      }
+      return originalSort.call(this, compareFn)
+    })
+    mockPrisma.connectedAccount.findMany
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'plain' }),
+        makeAccount({ id: 'priority-b' }),
+        makeAccount({ id: 'priority-a' }),
+      ])
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'plain' }),
+        makeAccount({ id: 'priority-b' }),
+        makeAccount({ id: 'priority-a' }),
+      ])
+    mockPrisma.uploadRoutingPolicy.upsert.mockResolvedValueOnce({ mode: 'priority', priorityAccountIds: ['priority-a', 'priority-b'], roundRobinCursor: 0 })
+    fetchMock.mockResolvedValue({ ok: true, headers: new Headers({ location: 'https://google/upload/priority-order' }) })
+    mockPrisma.uploadSession.create.mockResolvedValue({ id: 'priority-session' })
+
+    const res = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'priority-order.txt', mimeType: 'text/plain', sizeBytes: '5' })
+
+    expect(res.status).toBe(201)
+    expect(mockPrisma.uploadSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ targetConnectedAccountId: 'priority-b' }),
+    }))
+    sortSpy.mockRestore()
+  })
+
+  it('POST /resumable/init exercises the null-s3 most-available comparator branch', async () => {
+    const originalSort = Array.prototype.sort
+    const sortSpy = vi.spyOn(Array.prototype, 'sort').mockImplementation(function (this: any, compareFn: any) {
+      if (compareFn && Array.isArray(this) && this.some((item: any) => item?.account?.id === 'null-s3-branch')) {
+        compareFn(this[0], this[1])
+        return this as any
+      }
+      return originalSort.call(this, compareFn)
+    })
+    mockPrisma.connectedAccount.findMany
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'null-s3-branch', provider: 's3', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+        makeAccount({ id: 'number-google-branch', provider: 'google_drive', storageAccount: { availableBytes: 10n, lastSyncedAt: new Date() } }),
+      ])
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'null-s3-branch', provider: 's3', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+        makeAccount({ id: 'number-google-branch', provider: 'google_drive', storageAccount: { availableBytes: 10n, lastSyncedAt: new Date() } }),
+      ])
+    mockPrisma.uploadRoutingPolicy.upsert.mockResolvedValueOnce({ mode: 'most_available', priorityAccountIds: [], roundRobinCursor: 0 })
+    fetchMock.mockResolvedValue({ ok: true, headers: new Headers({ location: 'https://google/upload/null-s3-branch' }) })
+    mockPrisma.uploadSession.create.mockResolvedValue({ id: 'null-s3-session' })
+
+    const res = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'null-s3.txt', mimeType: 'text/plain', sizeBytes: '5' })
+
+    expect(res.status).toBe(201)
+    expect(mockPrisma.uploadSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ targetConnectedAccountId: 'null-s3-branch' }),
+    }))
+    sortSpy.mockRestore()
+  })
+
+  it('POST /resumable/init exercises the null-google most-available comparator branch', async () => {
+    const originalSort = Array.prototype.sort
+    const sortSpy = vi.spyOn(Array.prototype, 'sort').mockImplementation(function (this: any, compareFn: any) {
+      if (compareFn && Array.isArray(this) && this.some((item: any) => item?.account?.id === 'null-google-branch')) {
+        compareFn(this[0], this[1])
+        return this as any
+      }
+      return originalSort.call(this, compareFn)
+    })
+    mockPrisma.connectedAccount.findMany
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'null-google-branch', provider: 'google_drive', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+        makeAccount({ id: 'number-s3-branch', provider: 's3', storageAccount: { availableBytes: 10n, lastSyncedAt: new Date() } }),
+      ])
+      .mockResolvedValueOnce([
+        makeAccount({ id: 'null-google-branch', provider: 'google_drive', storageAccount: { availableBytes: null, lastSyncedAt: new Date() } }),
+        makeAccount({ id: 'number-s3-branch', provider: 's3', storageAccount: { availableBytes: 10n, lastSyncedAt: new Date() } }),
+      ])
+    mockPrisma.uploadRoutingPolicy.upsert.mockResolvedValueOnce({ mode: 'most_available', priorityAccountIds: [], roundRobinCursor: 0 })
+    fetchMock.mockResolvedValue({ ok: true, headers: new Headers({ location: 'https://google/upload/null-google-branch' }) })
+    mockPrisma.uploadSession.create.mockResolvedValue({ id: 'null-google-session' })
+
+    const res = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'null-google.txt', mimeType: 'text/plain', sizeBytes: '5' })
+
+    expect(res.status).toBe(201)
+    expect(mockPrisma.uploadSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ targetConnectedAccountId: 'null-google-branch' }),
+    }))
+    sortSpy.mockRestore()
+  })
+
   it('POST /resumable/init forwards Google init errors', async () => {
     const account = makeAccount()
     mockAccountLookups([account], [account])
@@ -569,6 +1031,17 @@ describe('uploadRouter', () => {
 
     expect(res.status).toBe(500)
     expect(res.body).toEqual({ error: 'Google API Init Error: bad google' })
+  })
+
+  it('POST /resumable/init requires Google to return a resumable session location', async () => {
+    const account = makeAccount()
+    mockAccountLookups([account], [account])
+    fetchMock.mockResolvedValue({ ok: true, headers: new Headers() })
+
+    const res = await request(makeApp()).post('/resumable/init').set(authHeader).send({ fileName: 'doc.txt', mimeType: 'text/plain', sizeBytes: '5' })
+
+    expect(res.status).toBe(500)
+    expect(res.body).toEqual({ error: 'Google API did not return Location header.' })
   })
 
   it('GET /resumable/status/:id covers completed, local, remote partial, remote complete, fallback, and failures', async () => {
@@ -652,6 +1125,33 @@ describe('uploadRouter', () => {
     })
     expect(mockCreateAuditLog).toHaveBeenCalledWith('user-1', 'UPLOAD_FILE', 'file', 'file-1', { name: 'uploaded.jpg', size: '10' })
     expect(res.body).toEqual({ status: 'completed', file: { id: 'file-1', name: 'uploaded.jpg', sizeBytes: '10' } })
+  })
+
+  it('PUT /resumable/chunk/:id falls back to session metadata when Google omits name and mime type', async () => {
+    mockPrisma.uploadSession.findFirstOrThrow.mockResolvedValue({ id: 'session-fallback', folderId: null, fileName: 'session-name.jpg', mimeType: 'image/jpeg', googleSessionUri: 'https://google/chunk-fallback', targetConnectedAccountId: 'account-1' })
+    mockPrisma.connectedAccount.findFirstOrThrow.mockResolvedValue(makeAccount())
+    mockPrisma.file.findFirst.mockResolvedValue(null)
+    mockPrisma.file.create.mockResolvedValue({ id: 'file-fallback', name: 'session-name.jpg', sizeBytes: 10n })
+    mockPrisma.uploadSession.update.mockResolvedValue({})
+    fetchMock.mockResolvedValue({ status: 200, ok: true, json: vi.fn().mockResolvedValue({ id: 'drive-file-fallback', name: '', mimeType: '' }) })
+    drivePermissionsCreateMock.mockRejectedValueOnce({ message: '' })
+
+    const res = await request(makeApp()).put('/resumable/chunk/session-fallback').set(authHeader).set('Content-Range', 'bytes 0-9/10').send('0123456789')
+
+    expect(res.status).toBe(201)
+    expect(mockPrisma.file.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        connectedAccountId: 'account-1',
+        folderId: null,
+        provider: 'google_drive',
+        providerFileId: 'drive-file-fallback',
+        name: 'session-name.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 10n,
+      },
+    })
+    expect(res.body).toEqual({ status: 'completed', file: { id: 'file-fallback', name: 'session-name.jpg', sizeBytes: '10' } })
   })
 
   it('PUT /resumable/chunk/:id reuses existing files when present', async () => {

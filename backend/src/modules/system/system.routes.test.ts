@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
 import express from 'express'
 import request from 'supertest'
 import { EventEmitter } from 'events'
+import path from 'path'
 
 const busboyState = vi.hoisted(() => ({
   mode: 'no-file' as 'no-file' | 'success' | 'write-error' | 'busboy-error',
@@ -99,6 +100,7 @@ import { decryptText, encryptText } from '../../utils/crypto.js'
 import { systemRouter } from './system.routes.js'
 import { exec, spawn } from 'child_process'
 import fs from 'fs'
+import Busboy from 'busboy'
 
 const mockPrisma = prisma as unknown as {
   userSession: { findUnique: ReturnType<typeof vi.fn> }
@@ -115,6 +117,7 @@ const mockSpawn = vi.mocked(spawn)
 const mockFs = vi.mocked(fs, true)
 const mockDecryptText = vi.mocked(decryptText)
 const mockEncryptText = vi.mocked(encryptText)
+const BusboyMock = vi.mocked(Busboy)
 
 const authToken = signAccessToken({ sub: 'user-1', sid: 'session-1' })
 const authHeader = { Authorization: 'Bea' + 'rer ' + authToken }
@@ -238,6 +241,26 @@ describe('systemRouter', () => {
       stdout: 'Already up to date.',
       stderr: '',
     })
+  })
+
+  it('POST /update logs successful git pull stderr output when present', async () => {
+    mockExec.mockImplementation(((command: any, optionsOrCallback: any, maybeCallback?: any) => {
+      const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback
+      if (command === 'git --version') callback(null, 'git version', '')
+      if (command === 'git pull') callback(null, 'Updated', 'warning: local changes ignored')
+      return {} as any
+    }) as any)
+    mockFs.existsSync.mockReturnValue(false)
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const res = await request(makeApp())
+      .post('/update')
+      .set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(warnSpy).toHaveBeenCalledWith('System update stderr:', 'warning: local changes ignored')
+    warnSpy.mockRestore()
   })
 
   it('POST /update returns 500 when git pull fails', async () => {
@@ -487,6 +510,110 @@ describe('systemRouter', () => {
     expect(res.headers['content-type']).toContain('application/octet-stream')
   })
 
+  it('GET /backup uses the default database path when DATABASE_URL is unset', async () => {
+    delete process.env.DATABASE_URL
+    const expectedPath = path.resolve(process.cwd(), '..', 'backend', 'prisma', './dev.db')
+    mockFs.existsSync
+      .mockImplementationOnce(() => false)
+      .mockImplementationOnce(() => false)
+      .mockImplementation((target: any) => String(target) === expectedPath)
+
+    const res = await request(makeApp())
+      .get('/backup')
+      .set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(mockFs.createReadStream).toHaveBeenCalledWith(expectedPath)
+  })
+
+  it('GET /backup passes stream creation errors to next', async () => {
+    mockFs.existsSync.mockImplementation((target: any) => String(target) === '/var/lib/9drive/dev.db')
+    mockFs.createReadStream.mockImplementation(() => {
+      throw new Error('stream failed')
+    })
+
+    const res = await request(makeApp())
+      .get('/backup')
+      .set(authHeader)
+
+    expect(res.status).toBe(500)
+    expect(mockFs.createReadStream).toHaveBeenCalledWith('/var/lib/9drive/dev.db')
+  })
+
+  it('GET /backup supports absolute DATABASE_URL values without the file prefix', async () => {
+    process.env.DATABASE_URL = '/absolute/path/dev.db'
+    mockFs.existsSync.mockImplementation((target: any) => String(target) === '/absolute/path/dev.db')
+
+    const res = await request(makeApp())
+      .get('/backup')
+      .set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(mockFs.createReadStream).toHaveBeenCalledWith('/absolute/path/dev.db')
+  })
+
+  it('GET /backup resolves relative DATABASE_URL values from prisma when that directory exists', async () => {
+    process.env.DATABASE_URL = 'file:./relative.db'
+    const expectedPath = path.resolve(process.cwd(), 'prisma', './relative.db')
+    mockFs.existsSync
+      .mockImplementationOnce(() => true)
+      .mockImplementation((target: any) => String(target) === expectedPath)
+
+    const res = await request(makeApp())
+      .get('/backup')
+      .set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(mockFs.createReadStream).toHaveBeenCalledWith(expectedPath)
+  })
+
+  it('GET /backup falls back to backend/prisma for relative DATABASE_URL values', async () => {
+    process.env.DATABASE_URL = 'file:./fallback.db'
+    const expectedPath = path.resolve(process.cwd(), 'backend', 'prisma', './fallback.db')
+    mockFs.existsSync
+      .mockImplementationOnce(() => false)
+      .mockImplementationOnce(() => true)
+      .mockImplementation((target: any) => String(target) === expectedPath)
+
+    const res = await request(makeApp())
+      .get('/backup')
+      .set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(mockFs.createReadStream).toHaveBeenCalledWith(expectedPath)
+  })
+
+  it('GET /backup falls back to ../backend/prisma when other relative directories are missing', async () => {
+    process.env.DATABASE_URL = 'file:./final.db'
+    const expectedPath = path.resolve(process.cwd(), '..', 'backend', 'prisma', './final.db')
+    mockFs.existsSync
+      .mockImplementationOnce(() => false)
+      .mockImplementationOnce(() => false)
+      .mockImplementation((target: any) => String(target) === expectedPath)
+
+    const res = await request(makeApp())
+      .get('/backup')
+      .set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(mockFs.createReadStream).toHaveBeenCalledWith(expectedPath)
+  })
+
+  it('GET /backup strips query parameters from DATABASE_URL values', async () => {
+    process.env.DATABASE_URL = 'file:./query.db?cache=shared'
+    const expectedPath = path.resolve(process.cwd(), 'prisma', './query.db')
+    mockFs.existsSync
+      .mockImplementationOnce(() => true)
+      .mockImplementation((target: any) => String(target) === expectedPath)
+
+    const res = await request(makeApp())
+      .get('/backup')
+      .set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(mockFs.createReadStream).toHaveBeenCalledWith(expectedPath)
+  })
+
   it('POST /restore requires multipart form data', async () => {
     const res = await request(makeApp())
       .post('/restore')
@@ -550,6 +677,24 @@ describe('systemRouter', () => {
     expect(mockFs.unlinkSync).toHaveBeenCalledWith('/var/lib/9drive/dev.db.tmp')
   })
 
+  it('POST /restore still returns 500 when temp cleanup after a write error also fails', async () => {
+    busboyState.mode = 'write-error'
+    mockFs.createWriteStream.mockImplementation(() => new EventEmitter() as any)
+    mockFs.existsSync.mockImplementation((target: any) => String(target) === '/var/lib/9drive/dev.db.tmp')
+    mockFs.unlinkSync.mockImplementation(() => {
+      throw new Error('unlink failed')
+    })
+
+    const res = await request(makeApp())
+      .post('/restore')
+      .set(authHeader)
+      .set('Content-Type', 'multipart/form-data; boundary=---x')
+      .send('--ignored--')
+
+    expect(res.status).toBe(500)
+    expect(res.body).toEqual({ code: 'WRITE_ERROR', message: 'Failed to write temporary database file.', error: 'write failed' })
+  })
+
   it('POST /restore returns 500 when replacing the database fails', async () => {
     busboyState.mode = 'success'
     mockFs.createWriteStream.mockImplementation(() => new EventEmitter() as any)
@@ -569,6 +714,27 @@ describe('systemRouter', () => {
     expect(mockFs.unlinkSync).toHaveBeenCalledWith('/var/lib/9drive/dev.db.tmp')
   })
 
+  it('POST /restore still returns 500 when temp cleanup after replace failure also fails', async () => {
+    busboyState.mode = 'success'
+    mockFs.createWriteStream.mockImplementation(() => new EventEmitter() as any)
+    mockFs.existsSync.mockImplementation((target: any) => String(target) === '/var/lib/9drive/dev.db.tmp')
+    mockFs.renameSync.mockImplementation(() => {
+      throw new Error('rename failed')
+    })
+    mockFs.unlinkSync.mockImplementation(() => {
+      throw new Error('unlink failed')
+    })
+
+    const res = await request(makeApp())
+      .post('/restore')
+      .set(authHeader)
+      .set('Content-Type', 'multipart/form-data; boundary=---x')
+      .send('--ignored--')
+
+    expect(res.status).toBe(500)
+    expect(res.body).toEqual({ code: 'RESTORE_FAILED', message: 'Failed to restore database.', error: 'rename failed' })
+  })
+
   it('POST /restore passes busboy errors to next', async () => {
     busboyState.mode = 'busboy-error'
 
@@ -580,5 +746,20 @@ describe('systemRouter', () => {
 
     expect(res.status).toBe(500)
     expect(res.body).toEqual({ error: 'busboy failed' })
+  })
+
+  it('POST /restore passes constructor errors to next', async () => {
+    BusboyMock.mockImplementationOnce(() => {
+      throw new Error('restore init failed')
+    })
+
+    const res = await request(makeApp())
+      .post('/restore')
+      .set(authHeader)
+      .set('Content-Type', 'multipart/form-data; boundary=---x')
+      .send('--ignored--')
+
+    expect(res.status).toBe(500)
+    expect(res.body).toEqual({ error: 'restore init failed' })
   })
 })

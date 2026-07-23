@@ -145,6 +145,38 @@ describe('inviteRouter', () => {
     expect(mockPrisma.workspaceInvite.updateMany).not.toHaveBeenCalled()
   })
 
+  it('GET / preserves existing acceptedAt values for matched invitees', async () => {
+    const acceptedAt = new Date('2026-01-04T00:00:00.000Z')
+    mockPrisma.workspaceInvite.findMany
+      .mockResolvedValueOnce([makeInvite({ acceptedAt })])
+      .mockResolvedValueOnce([])
+    mockPrisma.user.findMany.mockResolvedValue([{ id: 'user-2', name: 'Friend', email: 'friend@example.com' }])
+
+    const res = await request(makeApp())
+      .get('/')
+      .set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(res.body.sent[0]).toEqual(expect.objectContaining({
+      status: 'accepted',
+      acceptedAt: acceptedAt.toISOString(),
+      user: { id: 'user-2', name: 'Friend', email: 'friend@example.com' },
+    }))
+  })
+
+  it('GET / returns null targets for unresolved received invites', async () => {
+    mockPrisma.workspaceInvite.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeInvite({ id: 'invite-2', inviterId: 'user-2', inviteeEmail: 'owner@example.com', targetType: 'folder', targetId: 'missing-folder' })])
+
+    const res = await request(makeApp())
+      .get('/')
+      .set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(res.body.received[0]).toEqual(expect.objectContaining({ target: null }))
+  })
+
   it('GET / passes errors to next', async () => {
     mockPrisma.user.findUniqueOrThrow.mockRejectedValue(new Error('invite list failed'))
 
@@ -208,6 +240,24 @@ describe('inviteRouter', () => {
       status: 'accepted',
       user: { id: 'user-2', name: 'Friend', email: 'friend@example.com' },
       target: { id: 'folder-1', name: 'Shared Folder', type: 'folder' },
+    }))
+  })
+
+  it('POST / serializes revoked invites and tolerates unresolved targets', async () => {
+    const revokedAt = new Date('2026-01-05T00:00:00.000Z')
+    mockPrisma.workspaceInvite.upsert.mockResolvedValue(makeInvite({ revokedAt }))
+    mockPrisma.file.findMany.mockResolvedValue([])
+
+    const res = await request(makeApp())
+      .post('/')
+      .set(authHeader)
+      .send({ email: 'friend@example.com', role: 'viewer', targetType: 'file', targetId: 'file-1' })
+
+    expect(res.status).toBe(201)
+    expect(res.body.invite).toEqual(expect.objectContaining({
+      target: null,
+      revokedAt: revokedAt.toISOString(),
+      user: null,
     }))
   })
 

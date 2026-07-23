@@ -211,12 +211,12 @@ describe('fileRouter', () => {
     driveFilesUpdateMock.mockResolvedValue({ data: {} })
     drivePermissionsCreateMock.mockResolvedValue({})
     mockGetAuthedGoogleClient.mockResolvedValue(authClientMock as any)
-    mockStreamProviderFile.mockImplementation((_file, _range, res, _options) => res.status(200).end())
+    mockStreamProviderFile.mockImplementation((_file, _range, res, _options) => (res.status(200).end() as any))
     mockCreateAuditLog.mockResolvedValue(undefined)
     mockDeleteS3Object.mockResolvedValue(undefined)
-    mockSyncGoogleQuota.mockResolvedValue(undefined)
-    mockSyncS3Quota.mockResolvedValue(undefined)
-    mockSyncGoogleAppFolderFiles.mockResolvedValue({ created: 0, updated: 0, deleted: 0 })
+    mockSyncGoogleQuota.mockResolvedValue(undefined as any)
+    mockSyncS3Quota.mockResolvedValue(undefined as any)
+    mockSyncGoogleAppFolderFiles.mockResolvedValue({ accountId: 'account-1', created: 0, updated: 0, deleted: 0 })
     mockGetS3ConfigForAccount.mockResolvedValue({ bucket: 'test-bucket', region: 'us-east-1' } as any)
     mockCreateS3Client.mockReturnValue({ send: vi.fn().mockResolvedValue({ Body: Readable.from(['s3-data']) }) } as any)
     authClientMock.getAccessToken.mockResolvedValue('access-token')
@@ -315,6 +315,71 @@ describe('fileRouter', () => {
     expect(mockPrisma.file.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
       where: expect.objectContaining({ mimeType: { in: mimeTypes } }),
     }))
+  })
+
+  it('GET / supports independent min-size and start-date filters', async () => {
+    mockPrisma.file.findMany.mockResolvedValue([])
+
+    const res = await request(makeApp()).get('/').set(authHeader).query({
+      minSize: '100',
+      startDate: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.file.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        sizeBytes: { gte: 100n },
+        createdAt: { gte: new Date('2026-01-01T00:00:00.000Z') },
+      }),
+    }))
+  })
+
+  it('GET / supports independent max-size and end-date filters', async () => {
+    mockPrisma.file.findMany.mockResolvedValue([])
+
+    const res = await request(makeApp()).get('/').set(authHeader).query({
+      maxSize: '200',
+      endDate: '2026-01-31T23:59:59.000Z',
+    })
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.file.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        sizeBytes: { lte: 200n },
+        createdAt: { lte: new Date('2026-01-31T23:59:59.000Z') },
+      }),
+    }))
+  })
+
+  it('GET / falls back to an empty mime type list when parsing returns an unknown kind', async () => {
+    vi.resetModules()
+    const actualZod = await vi.importActual<any>('zod')
+    vi.doMock('zod', () => ({
+      ...actualZod,
+      z: {
+        ...actualZod.z,
+        object: vi.fn().mockReturnValue({
+          parse: vi.fn().mockReturnValue({ kind: 'unknown' }),
+        }),
+      },
+    }))
+    const { prisma: freshPrisma } = await import('../../config/prisma.js')
+    const { fileRouter: mockedFileRouter } = await import('./file.routes.js')
+    ;(freshPrisma as any).file.findMany.mockResolvedValue([])
+    const listHandler = (mockedFileRouter.stack.find((layer: any) => layer.route?.path === '/' && layer.route?.methods?.get) as any).route.stack[0].handle as (req: any, res: any, next: any) => Promise<void>
+    const req: any = { user: { id: 'user-1' }, query: {} }
+    const res: any = { json: vi.fn().mockReturnThis() }
+    const next = vi.fn()
+
+    await listHandler(req, res, next)
+
+    expect(next).not.toHaveBeenCalled()
+    expect((freshPrisma as any).file.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ mimeType: { in: [] } }),
+    }))
+    expect(res.json).toHaveBeenCalled()
+    vi.doUnmock('zod')
+    vi.resetModules()
   })
 
   it('GET / supports no filters and forwards errors', async () => {
@@ -480,6 +545,17 @@ describe('fileRouter', () => {
     })
   })
 
+  it('DELETE /batch/permanent reports fallback delete messages for non-Error failures', async () => {
+    const rawFailedGoogle = makeFile({ id: 'file-raw', providerFileId: 'drive-raw', connectedAccountId: 'account-google', connectedAccount: { id: 'account-google', provider: 'google_drive' } })
+    mockPrisma.file.findMany.mockResolvedValue([rawFailedGoogle])
+    driveFilesDeleteMock.mockRejectedValueOnce('raw failure')
+
+    const res = await request(makeApp()).delete('/batch/permanent').set(authHeader).send({ fileIds: ['file-raw'] })
+
+    expect(res.status).toBe(400)
+    expect(res.body.failed).toEqual([{ fileId: 'file-raw', message: 'Delete failed' }])
+  })
+
   it('DELETE /batch/permanent passes outer errors to next', async () => {
     mockPrisma.file.findMany.mockRejectedValue(new Error('permanent failed'))
 
@@ -533,9 +609,34 @@ describe('fileRouter', () => {
     expect(res.body).toEqual({ error: 'shares failed' })
   })
 
+  it('GET /shared-links returns null URLs and serializes expirations when tokens are missing', async () => {
+    mockPrisma.fileShare.findMany.mockResolvedValue([
+      {
+        id: 'share-3',
+        token: null,
+        createdAt: new Date('2026-01-07T00:00:00.000Z'),
+        expiresAt: new Date('2026-01-08T00:00:00.000Z'),
+        file: makeFile(),
+      },
+    ])
+
+    const res = await request(makeApp()).get('/shared-links').set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({
+      shares: [{
+        id: 'share-3',
+        url: null,
+        createdAt: '2026-01-07T00:00:00.000Z',
+        expiresAt: '2026-01-08T00:00:00.000Z',
+        file: expect.objectContaining({ id: 'file-1', sizeBytes: '1024' }),
+      }],
+    })
+  })
+
   it('POST /sync-google syncs a specific account or all accounts', async () => {
     mockPrisma.connectedAccount.findMany.mockResolvedValueOnce([{ id: 'account-1' }]).mockResolvedValueOnce([{ id: 'account-1' }, { id: 'account-2' }])
-    mockSyncGoogleAppFolderFiles.mockResolvedValueOnce({ created: 1, updated: 2, deleted: 3 }).mockResolvedValueOnce({ created: 4, updated: 5, deleted: 6 }).mockResolvedValueOnce({ created: 7, updated: 8, deleted: 9 })
+    mockSyncGoogleAppFolderFiles.mockResolvedValueOnce({ accountId: 'account-1', created: 1, updated: 2, deleted: 3 }).mockResolvedValueOnce({ accountId: 'account-1', created: 4, updated: 5, deleted: 6 }).mockResolvedValueOnce({ accountId: 'account-2', created: 7, updated: 8, deleted: 9 })
 
     const single = await request(makeApp()).post('/sync-google').set(authHeader).send({ connectedAccountId: 'account-1' })
     const all = await request(makeApp()).post('/sync-google').set(authHeader).send({})
@@ -557,6 +658,16 @@ describe('fileRouter', () => {
 
     expect(res.status).toBe(500)
     expect(res.body).toEqual({ error: 'sync failed' })
+  })
+
+  it('POST /sync-google accepts an undefined request body', async () => {
+    mockPrisma.connectedAccount.findMany.mockResolvedValue([{ id: 'account-1' }])
+    mockSyncGoogleAppFolderFiles.mockResolvedValueOnce({ accountId: 'account-1', created: 1, updated: 0, deleted: 0 })
+
+    const res = await request(makeApp()).post('/sync-google').set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ status: 'ok', results: [{ created: 1, updated: 0, deleted: 0 }] })
   })
 
   it('GET /:id returns a file and forwards errors', async () => {
@@ -650,6 +761,16 @@ describe('fileRouter', () => {
     expect(res.body).toEqual({ status: 'ok', url: 'https://drive.link/public' })
   })
 
+  it('POST /:id/public-permission falls back to webContentLink when needed', async () => {
+    mockPrisma.file.findFirstOrThrow.mockResolvedValue(makeFile())
+    driveFilesGetMock.mockResolvedValue({ data: { webViewLink: null, webContentLink: 'https://drive.link/download' } })
+
+    const res = await request(makeApp()).post('/file-1/public-permission').set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ status: 'ok', url: 'https://drive.link/download' })
+  })
+
   it('POST /:id/public-permission rejects non-Google files and returns Google API errors', async () => {
     mockPrisma.file.findFirstOrThrow.mockResolvedValueOnce(makeFile({ provider: 's3', connectedAccount: { id: 'account-1', provider: 's3' } })).mockResolvedValueOnce(makeFile())
     drivePermissionsCreateMock.mockRejectedValueOnce(new Error('permission failed'))
@@ -661,6 +782,19 @@ describe('fileRouter', () => {
     expect(unsupported.body.code).toBe('UNSUPPORTED_PROVIDER')
     expect(failed.status).toBe(500)
     expect(failed.body).toEqual({ code: 'GOOGLE_API_ERROR', message: 'permission failed' })
+  })
+
+  it('POST /:id/public-permission falls back to the default Google API error message', async () => {
+    mockPrisma.file.findFirstOrThrow.mockResolvedValue(makeFile())
+    drivePermissionsCreateMock.mockRejectedValueOnce({})
+
+    const res = await request(makeApp()).post('/file-1/public-permission').set(authHeader)
+
+    expect(res.status).toBe(500)
+    expect(res.body).toEqual({
+      code: 'GOOGLE_API_ERROR',
+      message: 'Failed to update Google Drive permissions.',
+    })
   })
 
   it('DELETE /:id/share disables share links and forwards errors', async () => {
@@ -715,6 +849,17 @@ describe('fileRouter', () => {
     expect(googleRes.body).toEqual({ url: 'https://drive.link/content' })
     expect(swallowed.status).toBe(200)
     expect(swallowed.body).toEqual({ url: 'https://drive.link/view-2' })
+  })
+
+  it('GET /:id/view-url tolerates permission failures without an error message', async () => {
+    mockPrisma.file.findFirstOrThrow.mockResolvedValue(makeFile({ id: 'file-3', providerFileId: 'drive-file-3' }))
+    drivePermissionsCreateMock.mockRejectedValueOnce({ message: '' })
+    driveFilesGetMock.mockResolvedValueOnce({ data: { webViewLink: 'https://drive.link/view-3' } })
+
+    const res = await request(makeApp()).get('/file-3/view-url').set(authHeader)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ url: 'https://drive.link/view-3' })
   })
 
   it('GET /:id/view-url passes lookup errors to next', async () => {
@@ -777,7 +922,7 @@ describe('fileRouter', () => {
     expect(s3Send).toHaveBeenCalledWith({ Bucket: 'test-bucket', Key: 'key-1' })
     expect(archiveMock.append).toHaveBeenCalledTimes(3)
     expect(archiveMock.finalize).toHaveBeenCalled()
-    const errorHandler = archiveMock.on.mock.calls.find(([event]: [string]) => event === 'error')?.[1]
+    const errorHandler = archiveMock.on.mock.calls.find(([event]: [string, ...unknown[]]) => event === 'error')?.[1]
     expect(() => errorHandler?.(new Error('archive failed'))).toThrow('archive failed')
   })
 
@@ -791,5 +936,20 @@ describe('fileRouter', () => {
     expect(empty.body).toEqual({ code: 'FILES_NOT_FOUND', message: 'No files found.' })
     expect(failed.status).toBe(500)
     expect(failed.body).toEqual({ error: 'zip failed' })
+  })
+
+  it('POST /batch-download skips Google responses without a readable body', async () => {
+    const emptyBodyFile = makeFile({ id: 'gempty', providerFileId: 'drive-empty', name: 'empty.txt' })
+    const failedFile = makeFile({ id: 'gbad', providerFileId: 'drive-bad', name: 'bad.txt' })
+    mockPrisma.file.findMany.mockResolvedValue([emptyBodyFile, failedFile])
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, body: null })
+      .mockResolvedValueOnce({ ok: false, body: webStreamFrom('ignored') })
+
+    const res = await request(makeApp()).post('/batch-download').set(authHeader).send({ fileIds: ['gempty', 'gbad'] })
+
+    expect(res.status).toBe(200)
+    expect(archiveMock.append).not.toHaveBeenCalled()
+    expect(archiveMock.finalize).toHaveBeenCalled()
   })
 })

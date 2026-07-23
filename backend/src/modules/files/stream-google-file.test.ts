@@ -248,6 +248,26 @@ describe('streamGoogleFile', () => {
     expect(inlineRes.setHeader).toHaveBeenCalledWith('Content-Disposition', 'inline; filename="report.pdf"')
   })
 
+  it('falls back to the response status text when Google returns an empty error body', async () => {
+    const res = createRes()
+    ;(globalThis.fetch as any).mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      text: vi.fn().mockResolvedValue(''),
+      headers: { get: vi.fn().mockReturnValue(null) },
+      body: null,
+    })
+
+    await streamGoogleFile(createFile(), undefined, res as any)
+
+    expect(res.status).toHaveBeenCalledWith(502)
+    expect(res.json).toHaveBeenCalledWith({
+      code: 'GOOGLE_FILE_STREAM_FAILED',
+      message: 'Bad Gateway',
+    })
+  })
+
   it('returns error JSON when Google returns a failed response', async () => {
     const res = createRes()
     ;(globalThis.fetch as any).mockResolvedValue({
