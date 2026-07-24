@@ -124,7 +124,9 @@ Deploy to production:
 npm run db:migrate:deploy:postgresql
 ```
 
-The initial PostgreSQL migration is in `prisma/migrations-postgresql/20260604000000_init/migration.sql`.
+`db:migrate:deploy:postgresql` uses `prisma db push` to synchronise the PostgreSQL schema. It does not use migration history files, so zero-downtime column additions or other destructive changes should be verified against a staging database first.
+
+The initial PostgreSQL migration DDL is in `prisma/migrations-postgresql/20260604000000_init/migration.sql` for reference.
 
 ### SQLite
 
@@ -140,6 +142,14 @@ Run migrations:
 cd backend
 npm run prisma:migrate:sqlite
 ```
+
+To apply schema changes in a deployed SQLite environment, use:
+
+```bash
+npm run db:migrate:deploy:sqlite
+```
+
+This uses `prisma db push` which is the recommended approach for SQLite (no migration history files required).
 
 ---
 
@@ -630,7 +640,7 @@ cd backend
 npm run start:deploy
 ```
 
-`npm run db:migrate:deploy` uses Prisma production migrations and does not reset the database. If Prisma reports migration drift, stop the deploy and repair migration history first; do not run `prisma migrate reset` on production.
+`npm run db:migrate:deploy` applies schema changes via `prisma db push` for the default SQLite setup. For MySQL/MariaDB, use `db:migrate:deploy:mysql` / `db:migrate:deploy:mariadb`, which run `prisma migrate deploy` against the migration history in `prisma/migrations/`. For PostgreSQL and SQLite, `prisma db push` is used (no migration history files) — verify destructive changes against a staging database before deploying.
 
 ## 8. Manual Test Flow
 

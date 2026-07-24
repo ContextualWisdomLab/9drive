@@ -27,7 +27,7 @@ describe('createAuditLog', () => {
         action: 'ACTION',
         entityType: 'entity',
         entityId: 'entity-1',
-        metadata: JSON.stringify({ key: 'value' }),
+        metadata: { key: 'value' },
       },
     })
   })

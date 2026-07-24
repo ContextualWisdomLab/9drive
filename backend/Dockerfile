@@ -12,7 +12,7 @@ COPY src ./src
 
 RUN npm run build && npx prisma generate
 
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup && chown -R appuser:appgroup /app
 USER appuser
 
 EXPOSE 4000
