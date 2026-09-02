@@ -14,9 +14,11 @@ This repository is a fork of `zenhosta/9drive`. Upstream remains the original pr
 
 The repository contains a TypeScript full-stack application:
 
-- `backend/`: Express API, Prisma persistence, authentication, Google Drive and S3-compatible provider integrations, upload routing, and synchronization.
+- `backend/`: Express API, Prisma/MySQL persistence, authentication, Google Drive and S3-compatible provider integrations, upload routing, and synchronization.
 - `frontend/`: React/Vite dashboard for storage, quota, file operations, account connections, and upload workflows.
 - Docker Compose provides the repository-owned local deployment topology.
+
+The dated [product and technical gap baseline](product-technical-gap-baseline.md) records the current Context Map, core Prisma ERD, upload flow, fork provenance, release state, and active deployment/provider/reproducibility gaps without promoting mutable branch work to shipped truth.
 
 ## Getting started
 
@@ -33,6 +35,7 @@ The fork restores the upstream Apache License 2.0 grant and upstream `Copyright 
 ## Documentation and support
 
 - [Repository README](https://github.com/ContextualWisdomLab/9drive/blob/develop/README.md) — product, onboarding, architecture, verification, and fork provenance.
+- [Product and technical gap baseline](product-technical-gap-baseline.md) — architecture, data model, release, provenance, and commercialization gaps.
 - [Root license](https://github.com/ContextualWisdomLab/9drive/blob/develop/LICENSE) — inherited Apache-2.0 source grant once this branch integrates.
 - [Ask DeepWiki](https://deepwiki.com/ContextualWisdomLab/9drive) — repository-aware code and documentation navigation.
 - [Upstream project](https://github.com/zenhosta/9drive) — original project and upstream service information.
