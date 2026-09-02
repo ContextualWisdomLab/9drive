@@ -4,7 +4,7 @@
 
 **A self-hosted storage gateway for managing Google Drive and S3-compatible accounts from one virtual workspace.**
 
-9Drive gives operators one place to connect storage accounts, see available capacity, organize files through virtual folders, and route uploads to an eligible backing account. The application keeps provider credentials and upload-routing logic on the backend while exposing a React dashboard and an API-key-backed upload surface.
+9Drive gives operators one place to connect storage accounts, inspect available capacity, organize files through virtual folders, and route uploads to an eligible backing account. Provider credentials and upload-routing logic stay on the backend; the browser receives the dashboard and application API, not provider secrets.
 
 > **Fork status:** `ContextualWisdomLab/9drive` is a fork of [`zenhosta/9drive`](https://github.com/zenhosta/9drive). Upstream remains the original product and copyright authority. Fork-local behavior, verification, and release status must be evaluated from this repository rather than inferred from the upstream service or README.
 
@@ -19,23 +19,75 @@
 - Exposes an external upload API with revocable, hashed API keys.
 - Supports email/password authentication and Google sign-in.
 
-9Drive is a storage gateway, not a replacement for Google Drive, S3, an identity provider, or a database. Those systems retain authority over their own accounts, objects, credentials, availability, and policies.
+9Drive is a storage gateway, not a replacement for Google Drive, S3, an identity provider, or MySQL. Those systems retain authority over their own accounts, objects, credentials, availability, and policies.
 
-## Quick start
+## Quick start with Docker Compose
 
-The most reproducible repository-owned path is Docker Compose.
+The repository-owned Compose topology runs MySQL 8.4, the backend, and the frontend together. It intentionally refuses to start when the database password, JWT secret, or token-encryption key is blank.
 
 ```bash
 git clone https://github.com/ContextualWisdomLab/9drive.git
 cd 9drive
 cp .env.docker.example .env
-# Edit .env with strong secrets and the provider settings you actually use.
+```
+
+Generate **independent** values and paste them into the blank required fields in `.env`:
+
+```bash
+openssl rand -hex 32   # MYSQL_ROOT_PASSWORD
+openssl rand -hex 32   # MYSQL_PASSWORD
+openssl rand -hex 32   # JWT_ACCESS_SECRET
+openssl rand -hex 32   # TOKEN_ENCRYPTION_KEY
+```
+
+Do not reuse one value for multiple secrets. After editing `.env`, validate and start the stack:
+
+```bash
+docker compose config
 docker compose up -d --build
 ```
 
-The stack exposes the frontend and backend according to `docker-compose.yml` and applies the backend's production Prisma migrations before serving the API. Google Drive sign-in/connect flows require a Google Cloud OAuth client and the Drive API; S3-compatible providers require their own endpoint and credentials.
+Open **http://localhost:5173**. The backend is also published at **http://localhost:4000** for direct API and OAuth callback use. MySQL is bound only to `127.0.0.1:3306` for local administration and source-development access.
 
-For source development, run the backend and frontend independently:
+The production frontend uses its same-origin `/api` path when the build keeps the repository default API URL; `frontend/nginx.conf` proxies that path to the backend service. `FRONTEND_URL` remains `http://localhost:5173`, so browser redirects and generated share links use the URL users actually open. The default Google callback is `http://localhost:4000/connected-accounts/google/callback`.
+
+Google Drive sign-in/connect flows require a Google Cloud OAuth client and the Drive API. S3-compatible providers require their own endpoint and credentials. Google credentials may remain blank until that integration is configured.
+
+Useful lifecycle commands:
+
+```bash
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f mysql
+docker compose down
+```
+
+Use `docker compose down -v` only when you intentionally want to delete the local MySQL volume.
+
+## Source development
+
+A fresh clone needs explicit backend and frontend environment files and a MySQL database before Prisma migration can run. The tracked examples keep required secrets blank instead of shipping known credentials.
+
+First configure the root Docker `.env` as described above and start only MySQL:
+
+```bash
+docker compose up -d mysql
+```
+
+Prepare the backend configuration:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+In `backend/.env`:
+
+- replace `REPLACE_WITH_MYSQL_PASSWORD` in `DATABASE_URL` with the same `MYSQL_PASSWORD` used by Compose;
+- set a fresh `JWT_ACCESS_SECRET` of at least 32 characters;
+- set a separate fresh `TOKEN_ENCRYPTION_KEY` of at least 32 characters;
+- add Google or reCAPTCHA settings only when you intend to use those integrations.
+
+Then install, generate the Prisma client, migrate MySQL, and start the backend:
 
 ```bash
 cd backend
@@ -45,13 +97,33 @@ npm run prisma:migrate
 npm run dev
 ```
 
+In another shell, prepare and run the frontend:
+
 ```bash
+cp frontend/.env.example frontend/.env
 cd frontend
 npm install
 npm run dev
 ```
 
-The backend currently provides `build`, `start`, `start:deploy`, Prisma migration, Google-config seeding, and focused provider/API test scripts. The frontend provides `dev`, `build`, and `preview` scripts. Keep all provider credentials, JWT secrets, encryption keys, and deployment-specific values out of source control.
+The development frontend runs at `http://localhost:5173` and calls the backend at `http://localhost:4000`. Keep `.env` files, provider credentials, JWT secrets, and encryption keys out of source control.
+
+## Google OAuth setup
+
+For local Google sign-in or Drive connection, configure a Google Cloud web OAuth client with:
+
+- authorized JavaScript origin: `http://localhost:5173`;
+- authorized redirect URI: `http://localhost:4000/connected-accounts/google/callback`;
+- the Google Drive API enabled for the same project.
+
+Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` in the relevant environment. The backend seed command stores the provider configuration encrypted in MySQL:
+
+```bash
+cd backend
+npm run seed:google-config
+```
+
+For Docker, the backend startup path can seed the same configuration when real Google credentials are present. Treat Google OAuth configuration as external provider authority; repository defaults do not create or verify a Google Cloud application for you.
 
 ## Architecture and integration boundary
 
@@ -71,20 +143,20 @@ Express + TypeScript backend
         │
         ├────────► Google Drive
         ├────────► S3-compatible object storage
-        └────────► Prisma-backed database
+        └────────► MySQL via Prisma
 ```
 
-`backend/` owns the application API, authentication, routing, provider adapters, and persistence integration. `frontend/` owns the operator-facing dashboard. Google, S3 providers, OAuth infrastructure, and the database remain external authorities; 9Drive should fail visibly when those dependencies are unavailable rather than presenting provider state as application-owned truth.
+`backend/` owns the application API, authentication, routing, provider adapters, and persistence integration. `frontend/` owns the operator-facing dashboard. Google, S3 providers, OAuth infrastructure, and MySQL remain external authorities; 9Drive should fail visibly when those dependencies are unavailable rather than presenting provider state as application-owned truth.
 
 ## Operational and security notes
 
-For any non-local deployment, use HTTPS, production OAuth origins/redirect URIs, strong randomly generated application secrets, restricted database exposure, backups, and provider credentials scoped to the intended account or bucket. Vite embeds selected frontend environment values at build time, so rebuild the frontend when those values change.
+For any non-local deployment, use HTTPS, production OAuth origins/redirect URIs, independently generated application and database secrets, restricted database exposure, backups, and provider credentials scoped to the intended account or bucket. Do not publish MySQL directly to an untrusted network. Vite embeds selected frontend environment values at build time, so rebuild the frontend when those values change.
 
 The upstream homepage and preview belong to the upstream project. They are **not** evidence that this ContextualWisdomLab fork is deployed from its current revision. This fork currently has no GitHub Release; bind any deployment to an exact reviewed commit and its current verification evidence.
 
 ## Verification
 
-Before integrating or deploying a fork change, at minimum run the repository-owned build/migration checks relevant to the changed surface:
+Before integrating or deploying a fork change, run the repository-owned checks relevant to the changed surface. For application builds:
 
 ```bash
 cd backend
@@ -98,16 +170,22 @@ npm install
 npm run build
 ```
 
+For Compose changes, also require `docker compose config` with non-empty required secrets and confirm the MySQL health dependency, Prisma migration, frontend `http://localhost:5173`, backend `http://localhost:4000`, same-origin `/api` proxy, and configured OAuth callback all agree.
+
 Provider-specific test scripts require real, appropriately scoped credentials and should not be treated as safe offline unit tests. GitHub Checks on the exact commit remain the authoritative hosted verification for a pull request.
 
 ## Documentation
 
 - [`docs/index.md`](docs/index.md) — concise product and integration landing page.
+- [`backend/.env.example`](backend/.env.example) — safe backend source-development configuration template.
+- [`frontend/.env.example`](frontend/.env.example) — frontend source-development configuration template.
 - [`backend/package.json`](backend/package.json) — backend scripts and current dependency surface.
 - [`frontend/package.json`](frontend/package.json) — frontend scripts and current dependency surface.
-- [`docker-compose.yml`](docker-compose.yml) — repository-owned container topology.
+- [`docker-compose.yml`](docker-compose.yml) — repository-owned MySQL/backend/frontend topology.
 - [`AGENTS.md`](AGENTS.md) — maintainer/automation guidance; not customer-facing product behavior.
-- [Upstream `zenhosta/9drive`](https://github.com/zenhosta/9drive) — original project, upstream history, and upstream service information.
+- [Upstream `zenhosta/9drive`](https://github.com/zenhosta/9drive) — original project, upstream history, and deeper upstream operations guidance.
+
+The former root README contained extensive upstream deployment, OAuth, API, update, and troubleshooting material. This fork landing intentionally keeps only code-current onboarding and trust boundaries; use current upstream documentation for upstream-specific operating procedure, and verify any procedure against this fork before applying it.
 
 ## Contribution and support
 
