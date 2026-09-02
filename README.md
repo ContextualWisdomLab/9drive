@@ -179,6 +179,7 @@ Provider-specific test scripts require real, appropriately scoped credentials an
 ## Documentation
 
 - [`docs/index.md`](docs/index.md) — concise product and integration landing page.
+- [`docs/product-technical-gap-baseline.md`](docs/product-technical-gap-baseline.md) — current Context Map, core Prisma ERD, upload flow, release/provenance state, and commercialization gaps.
 - [`backend/.env.example`](backend/.env.example) — safe backend source-development configuration template.
 - [`frontend/.env.example`](frontend/.env.example) — frontend source-development configuration template.
 - [`backend/package.json`](backend/package.json) — backend scripts and current dependency surface.
