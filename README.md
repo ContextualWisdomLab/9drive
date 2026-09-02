@@ -66,6 +66,19 @@ docker compose down
 
 Use `docker compose down -v` only when you intentionally want to delete the local MySQL volume.
 
+### Existing SQLite-based installations
+
+The MySQL Compose topology in this branch is a **new-install path**, not an automatic in-place SQLite upgrade. The protected predecessor Compose configuration mounted `sqlite_data` at `/app/prisma` and pointed `DATABASE_URL` at `/app/prisma/dev.db`; this branch does not contain a validated SQLite-to-MySQL data converter.
+
+Before changing an existing SQLite-backed installation, keep the old exact application revision available and preserve the database bytes from the still-running legacy backend:
+
+```bash
+docker compose cp backend:/app/prisma/dev.db ./9drive-legacy-dev.db
+shasum -a 256 ./9drive-legacy-dev.db
+```
+
+Store that copy and digest outside the Compose volume before changing revisions or removing volumes. Do **not** start the MySQL topology expecting it to import the SQLite file. The built-in `/system/backup` and `/system/restore` endpoints remain file-database operations only; under MySQL they now return an explicit unsupported response instead of treating the server URL as a file path. A verified MySQL backup/restore procedure and SQLite-to-MySQL migration remain release-readiness work and must be completed before an existing installation is migrated in place.
+
 ## Source development
 
 A fresh clone needs explicit backend and frontend environment files and a MySQL database before Prisma migration can run. The tracked examples keep required secrets blank instead of shipping known credentials.
@@ -153,6 +166,8 @@ Express + TypeScript backend
 ## Operational and security notes
 
 For any non-local deployment, use HTTPS, production OAuth origins/redirect URIs, independently generated application and database secrets, restricted database exposure, backups, and provider credentials scoped to the intended account or bucket. Do not publish MySQL directly to an untrusted network. Vite embeds selected frontend environment values at build time, so rebuild the frontend when those values change.
+
+Google Drive uploads are private by provider default. The upload paths do not create an `anyone` permission or grant public writer access as a side effect of storing a file. Sharing is a separate product action and must retain explicit application authorization and revocation rather than broadening the provider ACL during upload.
 
 The upstream homepage and preview belong to the upstream project. They are **not** evidence that this ContextualWisdomLab fork is deployed from its current revision. This fork currently has no GitHub Release; bind any deployment to an exact reviewed commit and its current verification evidence.
 
