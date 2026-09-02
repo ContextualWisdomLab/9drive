@@ -198,8 +198,8 @@ When changing provider behavior, document which system owns the authoritative st
 
 ## License and provenance
 
-This fork inherits the upstream **Apache License 2.0** grant and preserves the upstream copyright notice, `Copyright 2026 Zenhosta`. See [`LICENSE`](LICENSE).
+This fork inherits the upstream **Apache License 2.0** repository grant and preserves the upstream copyright notice, `Copyright 2026 Zenhosta`. See [`LICENSE`](LICENSE).
 
-The fork was created before upstream commit `811d4a2` added the root Apache-2.0 file, so this documentation lane restores that upstream license text rather than inventing a new ContextualWisdomLab-exclusive grant. `backend/package.json` still carries the upstream `ISC` package metadata; that metadata is not used here to relicense the repository or third-party dependencies and should be reconciled before any standalone backend-package publication.
+The fork was created before upstream commit `811d4a2` added the root Apache-2.0 file, so this documentation lane restores that upstream license text rather than inventing a new ContextualWisdomLab-exclusive grant. Upstream's current `backend/package.json` still declares `ISC` even after that Apache-2.0 repository-license commit, and this fork preserves the same inherited component metadata. Apache-2.0 and ISC are both commercial-use-permissive; the repository grant and backend package metadata are therefore documented separately rather than silently rewriting either one. Any future standalone backend-package publication should preserve the inherited package declaration unless upstream provenance or an explicit rights-backed change establishes a different package grant.
 
 npm dependencies, Google APIs, S3-compatible services, databases, container images, and other third-party software or services retain their own licenses and terms. The repository license does not override them.
