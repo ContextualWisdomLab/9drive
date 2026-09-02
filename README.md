@@ -81,7 +81,7 @@ Store that copy and digest outside the Compose volume before changing revisions 
 
 ## Source development
 
-A fresh clone needs explicit backend and frontend environment files and a MySQL database before Prisma migration can run. The tracked examples keep required secrets blank instead of shipping known credentials.
+A fresh clone needs explicit backend and frontend environment files and a MySQL database before Prisma migration can run. The tracked examples keep required secrets blank instead of shipping known credentials. Both JavaScript workspaces have committed lockfiles, so the documented clean-install path uses `npm ci` rather than re-resolving dependencies.
 
 First configure the root Docker `.env` as described above and start only MySQL:
 
@@ -102,11 +102,11 @@ In `backend/.env`:
 - set a separate fresh `TOKEN_ENCRYPTION_KEY` of at least 32 characters;
 - add Google or reCAPTCHA settings only when you intend to use those integrations.
 
-Then install, generate the Prisma client, migrate MySQL, and start the backend:
+Then install from the lockfile, generate the Prisma client, migrate MySQL, and start the backend:
 
 ```bash
 cd backend
-npm install
+npm ci
 npm run prisma:generate
 npm run prisma:migrate
 npm run dev
@@ -117,7 +117,7 @@ In another shell, prepare and run the frontend:
 ```bash
 cp frontend/.env.example frontend/.env
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -173,17 +173,18 @@ The upstream homepage and preview belong to the upstream project. They are **not
 
 ## Verification
 
-Before integrating or deploying a fork change, run the repository-owned checks relevant to the changed surface. For application builds:
+Before integrating or deploying a fork change, run the repository-owned checks relevant to the changed surface. The backend includes a dependency-free contract test that guards the private-upload and database-backup fail-closed boundaries introduced by this lane.
 
 ```bash
 cd backend
-npm install
+npm ci
+npm run test:contracts
 npm run build
 ```
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run build
 ```
 
