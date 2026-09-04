@@ -202,6 +202,12 @@ systemRouter.post('/google-config', requireAuth, async (req, res, next) => {
 
 systemRouter.get('/backup', requireAuth, (req, res, next) => {
   try {
+    if (!isFileDatabase()) {
+      return res.status(501).json({
+        code: 'DATABASE_BACKUP_UNSUPPORTED',
+        message: 'The built-in backup endpoint supports only legacy file-backed databases. MySQL deployments require an operator-managed, verified database backup procedure.'
+      })
+    }
     const dbPath = getDatabaseFilePath()
     if (!fs.existsSync(dbPath)) {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'Database file not found.' })
@@ -217,6 +223,12 @@ systemRouter.get('/backup', requireAuth, (req, res, next) => {
 
 systemRouter.post('/restore', requireAuth, (req, res, next) => {
   try {
+    if (!isFileDatabase()) {
+      return res.status(501).json({
+        code: 'DATABASE_RESTORE_UNSUPPORTED',
+        message: 'The built-in restore endpoint supports only legacy file-backed databases. MySQL deployments require an operator-managed, verified database restore procedure.'
+      })
+    }
     const contentType = req.headers['content-type']
     if (!contentType?.includes('multipart/form-data')) {
       return res.status(400).json({ code: 'BAD_REQUEST', message: 'multipart/form-data required.' })
@@ -297,8 +309,16 @@ systemRouter.post('/restore', requireAuth, (req, res, next) => {
   }
 })
 
+function isFileDatabase(): boolean {
+  const dbUrl = process.env.DATABASE_URL || 'file:./dev.db'
+  return /^(sqlite|file):/.test(dbUrl)
+}
+
 function getDatabaseFilePath(): string {
   const dbUrl = process.env.DATABASE_URL || 'file:./dev.db'
+  if (!/^(sqlite|file):/.test(dbUrl)) {
+    throw new Error('database-file-path-unavailable-for-server-database')
+  }
   let cleanPath = dbUrl.replace(/^(sqlite|file):/, '')
 
   if (cleanPath.includes('?')) {

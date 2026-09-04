@@ -1,725 +1,221 @@
-![9Drive cover](https://i.ibb.co.com/35BySv1C/image.png)
-
 # 9Drive
 
-9Drive is a storage gateway web app for connecting multiple Google Drive accounts into one virtual storage dashboard. Users can register with email/password or Google, automatically connect their first Google Drive account during Google sign-in, track quota, upload files into a dedicated `9drive` Drive folder, organize files with virtual folders, preview files, sync MySQL from Google Drive, and let the backend route uploads to the Drive account with enough free space.
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ContextualWisdomLab/9drive)
 
-## Features
+**A self-hosted storage gateway for managing Google Drive and S3-compatible accounts from one virtual workspace.**
 
-- Google Drive and S3-compatible storage gateway in one virtual storage dashboard.
-- S3-compatible storage support with custom endpoints for providers like MinIO, Cloudflare R2, Wasabi, Backblaze B2, and AWS S3.
-- Direct upload stream to Google Drive. Files are not stored on the server.
-- Google Drive uploads are stored under a root `9drive` folder.
-- Direct upload stream to S3-compatible storage through the backend without exposing storage credentials to the frontend.
-- Upload routing policies with most-available, round-robin, and priority-order modes.
-- External upload API using API keys at `POST /api/v1/uploads`.
-- API key management with one-time secret display, hashed key storage, last-used tracking, and revocation.
-- Email/password auth plus Google sign-in/register with automatic first Drive connection.
-- Multi-account storage quota summary.
-- Quota tracker page.
-- Manual sync from the Google Drive `9drive` folder back into MySQL.
-- Virtual folders.
-- File preview, download, rename, move, and delete actions.
-- In-app API documentation with cURL and JavaScript upload examples.
-- Bottom-right upload progress panel.
-- Bearer token authentication.
-- Global Google OAuth config stored encrypted in DB (can be set via seed command or directly in Settings UI).
-- Automated system updates via `update.sh` directly from the Settings UI (PM2 setup).
-- Optional reCAPTCHA on email/password registration.
-- MySQL database with Prisma migrations.
-- Express + TypeScript backend.
-- React + Vite frontend.
+9Drive gives operators one place to connect storage accounts, inspect available capacity, organize files through virtual folders, and route uploads to an eligible backing account. Provider credentials and upload-routing logic stay on the backend; the browser receives the dashboard and application API, not provider secrets.
 
-## Preview
+> **Fork status:** `ContextualWisdomLab/9drive` is a fork of [`zenhosta/9drive`](https://github.com/zenhosta/9drive). Upstream remains the original product and copyright authority. Fork-local behavior, verification, and release status must be evaluated from this repository rather than inferred from the upstream service or README.
 
-Live preview: https://9drive.zenhosta.com
+## What 9Drive does
 
-![9Drive dashboard preview](https://i.ibb.co.com/HLjG3JRf/image.png)
+- Connects multiple Google Drive accounts and S3-compatible storage providers.
+- Aggregates quota and storage visibility behind one dashboard.
+- Routes uploads with most-available, round-robin, or priority-order policies.
+- Streams uploads through the backend without exposing provider credentials to the browser.
+- Maintains virtual folders and application metadata independently of provider folder layout.
+- Supports preview, download, rename, move, delete, and provider synchronization workflows.
+- Exposes an external upload API with revocable, hashed API keys.
+- Supports email/password authentication and Google sign-in.
 
-![9Drive shared file preview](https://i.ibb.co.com/QLpYGmx/image.png)
+9Drive is a storage gateway, not a replacement for Google Drive, S3, an identity provider, or MySQL. Those systems retain authority over their own accounts, objects, credentials, availability, and policies.
 
-## Star History
+## Quick start with Docker Compose
 
-[![Star History Chart](https://api.star-history.com/svg?repos=zenhosta/9drive&type=Date)](https://www.star-history.com/#zenhosta/9drive&Date)
-
-## Project Structure
-
-```txt
-backend/   Express API, Prisma schema, Google Drive integration
-frontend/  Vite React app
-```
-
-## Requirements
-
-- Node.js 20+
-- npm
-- MySQL running locally
-- Google Cloud project
-- Google OAuth Client ID and Client Secret
-
-Default database used by this project:
-
-```txt
-host: localhost
-port: 3306
-database: 9drive
-user: root
-password: empty
-```
-
-## 1. Quick Setup & Installation (Recommended)
-
-The easiest way to set up and run the project is using the automated setup script. It automatically generates all environment files with secure keys, installs dependencies, handles Prisma migrations, and configures either **SQLite** (zero installation/config) or **MySQL**.
-
-### Windows (PowerShell)
-Make sure to open PowerShell and navigate to the project directory first. For example, if you cloned the project to `E:\AUTO KLIK\9Drive`:
-
-```powershell
-# 1. Switch to the drive where the project is located (if necessary)
-E:
-
-# 2. Navigate to the project folder
-cd "E:\AUTO KLIK\9Drive"
-
-# 3. Run the automated setup script
-powershell -ExecutionPolicy Bypass -File .\setup.ps1
-```
-
-
-1. **Database**: Choose **SQLite (Option 1)** for zero-configuration, or **MySQL (Option 2)**.
-2. **Google Credentials**: Enter Client ID/Secret or skip (press Enter) to set up later.
-
-Once setup is complete, run the entire application (both frontend and backend) in one command:
+The repository-owned Compose topology runs MySQL 8.4, the backend, and the frontend together. It intentionally refuses to start when the database password, URL-encoded database password, JWT secret, or token-encryption key is blank.
 
 ```bash
+git clone https://github.com/ContextualWisdomLab/9drive.git
+cd 9drive
+cp .env.docker.example .env
+```
+
+Generate **independent** values and paste them into the blank required fields in `.env`:
+
+```bash
+openssl rand -hex 32   # MYSQL_ROOT_PASSWORD
+openssl rand -hex 32   # MYSQL_PASSWORD
+openssl rand -hex 32   # JWT_ACCESS_SECRET
+openssl rand -hex 32   # TOKEN_ENCRYPTION_KEY
+```
+
+Prisma consumes MySQL credentials inside a connection URL, while the MySQL service needs the raw password. Set `MYSQL_PASSWORD_URLENCODED` to the percent-encoded representation of `MYSQL_PASSWORD`. With the hexadecimal password generated by the command above, the encoded and raw values are identical. If you choose a password containing URL-reserved characters such as `@`, `#`, `?`, `/`, or `%`, encode those characters before setting `MYSQL_PASSWORD_URLENCODED`.
+
+Do not reuse one value for multiple secrets. After editing `.env`, validate and start the stack:
+
+```bash
+docker compose config
+docker compose up -d --build
+```
+
+Open **http://localhost:5173**. The backend is also available at **http://localhost:4000** for direct API and OAuth callback use. MySQL, backend, and frontend are bound to `127.0.0.1` by default, so the local Compose topology is not exposed to other LAN interfaces unless an operator deliberately changes the bindings.
+
+The production frontend uses its same-origin `/api` path when the build keeps the repository default API URL; `frontend/nginx.conf` proxies that path to the backend service. `FRONTEND_URL` remains `http://localhost:5173`, so browser redirects and generated share links use the URL users actually open. The default Google callback is `http://localhost:4000/connected-accounts/google/callback`.
+
+Google Drive sign-in/connect flows require a Google Cloud OAuth client and the Drive API. S3-compatible providers require their own endpoint and credentials. Google credentials may remain blank until that integration is configured.
+
+Useful lifecycle commands:
+
+```bash
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f mysql
+docker compose down
+```
+
+Use `docker compose down -v` only when you intentionally want to delete the local MySQL volume.
+
+### Existing SQLite-based installations
+
+The MySQL Compose topology in this branch is a **new-install path**, not an automatic in-place SQLite upgrade. The protected predecessor Compose configuration mounted `sqlite_data` at `/app/prisma` and pointed `DATABASE_URL` at `/app/prisma/dev.db`; this branch does not contain a validated SQLite-to-MySQL data converter.
+
+Before changing an existing SQLite-backed installation, keep the old exact application revision available and preserve the database bytes from the still-running legacy backend:
+
+```bash
+docker compose cp backend:/app/prisma/dev.db ./9drive-legacy-dev.db
+shasum -a 256 ./9drive-legacy-dev.db
+```
+
+Store that copy and digest outside the Compose volume before changing revisions or removing volumes. Do **not** start the MySQL topology expecting it to import the SQLite file. The built-in `/system/backup` and `/system/restore` endpoints remain file-database operations only; under MySQL they now return an explicit unsupported response instead of treating the server URL as a file path. A verified MySQL backup/restore procedure and SQLite-to-MySQL migration remain release-readiness work and must be completed before an existing installation is migrated in place.
+
+## Source development
+
+A fresh clone needs explicit backend and frontend environment files and a MySQL database before Prisma migration can run. The tracked examples keep required secrets blank instead of shipping known credentials. Both JavaScript workspaces have committed lockfiles, so the documented clean-install path uses `npm ci` rather than re-resolving dependencies.
+
+First configure the root Docker `.env` as described above and start only MySQL:
+
+```bash
+docker compose up -d mysql
+```
+
+Prepare the backend configuration:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+In `backend/.env`:
+
+- replace `REPLACE_WITH_URL_ENCODED_MYSQL_PASSWORD` in `DATABASE_URL` with the percent-encoded form of the same `MYSQL_PASSWORD` used by Compose; the README's hexadecimal password can be copied unchanged;
+- set a fresh `JWT_ACCESS_SECRET` of at least 32 characters;
+- set a separate fresh `TOKEN_ENCRYPTION_KEY` of at least 32 characters;
+- add Google or reCAPTCHA settings only when you intend to use those integrations.
+
+Then install from the lockfile, generate the Prisma client, migrate MySQL, and start the backend:
+
+```bash
+cd backend
+npm ci
+npm run prisma:generate
+npm run prisma:migrate
 npm run dev
 ```
 
----
-
-## 2. Manual Installation (Alternative)
-
-If you prefer to configure the project manually:
-
-### 2.1 Install Dependencies
-Install backend dependencies:
+In another shell, prepare and run the frontend:
 
 ```bash
-cd backend
-npm install
+cp frontend/.env.example frontend/.env
+cd frontend
+npm ci
+npm run dev
 ```
 
-Install frontend dependencies:
+The development frontend runs at `http://localhost:5173` and calls the backend at `http://localhost:4000`. Keep `.env` files, provider credentials, JWT secrets, and encryption keys out of source control.
 
-```bash
-cd ../frontend
-npm install
-```
+## Google OAuth setup
 
-### 2.2 Create Database (For MySQL)
-Create a database:
-```sql
-CREATE DATABASE 9drive;
-```
-If using MySQL CLI:
-```bash
-mysql -u root -e "CREATE DATABASE IF NOT EXISTS 9drive;"
-```
+For local Google sign-in or Drive connection, configure a Google Cloud web OAuth client with:
 
-### 2.3 Environment Setup
+- authorized JavaScript origin: `http://localhost:5173`;
+- authorized redirect URI: `http://localhost:4000/connected-accounts/google/callback`;
+- the Google Drive API enabled for the same project.
 
-
-Create `backend/.env`:
-
-```env
-DATABASE_URL="mysql://root@localhost:3306/9drive"
-APP_PORT=4000
-FRONTEND_URL="http://localhost:5173"
-JWT_ACCESS_SECRET="change-this-jwt-secret-at-least-32-chars"
-TOKEN_ENCRYPTION_KEY="change-this-encryption-key-32bytes!"
-ACCESS_TOKEN_TTL_SECONDS=900
-REFRESH_TOKEN_TTL_DAYS=30
-MAX_UPLOAD_BYTES=5368709120
-RECAPTCHA_SECRET_KEY=""
-
-# Used only by `npm run seed:google-config`.
-# These values are encrypted and stored in DB as global Google OAuth config.
-GOOGLE_CLIENT_ID=""
-GOOGLE_CLIENT_SECRET=""
-GOOGLE_REDIRECT_URI="http://localhost:4000/connected-accounts/google/callback"
-```
-
-Important:
-
-- `JWT_ACCESS_SECRET` should be long and random.
-- `TOKEN_ENCRYPTION_KEY` should be long and random.
-- Do not commit `backend/.env`.
-- Google OAuth credentials are used by the seed script, then stored encrypted in the database.
-
-## 4. Frontend Environment
-
-Create or confirm `frontend/.env`:
-
-```env
-VITE_API_URL=http://localhost:4000
-VITE_RECAPTCHA_SITE_KEY=
-```
-
-Captcha is disabled when `VITE_RECAPTCHA_SITE_KEY` or backend `RECAPTCHA_SECRET_KEY` is empty. Set both values to enable captcha on registration.
-
-## 5. Run Prisma Migrations
-
-```bash
-cd backend
-npm run prisma:migrate
-```
-
-If Prisma client generation is blocked on Windows by a running Node process, stop running backend/frontend dev servers and run:
-
-```bash
-npx prisma generate
-```
-
-## 6. Google Cloud Setup
-
-Google setup is done in Google Cloud Console, not Google Search Console. Google Search Console is for website indexing/search ownership. OAuth and Drive API are managed in Google Cloud Console.
-
-Open Google Cloud Console:
-
-```txt
-https://console.cloud.google.com/
-```
-
-### 6.1 Create Or Select Project
-
-1. Open Google Cloud Console.
-2. Click project selector in top bar.
-3. Create a new project or select an existing project.
-4. Remember the project name because OAuth client and Drive API must be in the same project.
-
-### 6.2 Enable Google Drive API
-
-1. Go to:
-
-```txt
-APIs & Services -> Library
-```
-
-2. Search:
-
-```txt
-Google Drive API
-```
-
-3. Open `Google Drive API`.
-4. Click `Enable`.
-5. Wait a few minutes if Google says the API was enabled recently.
-
-Direct URL pattern:
-
-```txt
-https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=YOUR_PROJECT_ID
-```
-
-If Google Drive API is disabled, you will see an error like:
-
-```txt
-Google Drive API has not been used in project ... before or it is disabled.
-```
-
-### 6.3 Configure OAuth Consent Screen
-
-1. Go to:
-
-```txt
-APIs & Services -> OAuth consent screen
-```
-
-2. Choose app type:
-
-```txt
-External
-```
-
-3. Fill required fields:
-
-```txt
-App name
-User support email
-Developer contact email
-```
-
-4. Add scopes:
-
-```txt
-https://www.googleapis.com/auth/drive
-https://www.googleapis.com/auth/userinfo.email
-https://www.googleapis.com/auth/userinfo.profile
-```
-
-Full Drive access is required so Google sign-in can connect the first Drive account automatically and sync files manually added to the `9drive` folder.
-
-5. If publishing status is `Testing`, add test users.
-
-Add every Google account that will test the app:
-
-```txt
-OAuth consent screen -> Test users -> Add users
-```
-
-If you do not add test users, Google may show:
-
-```txt
-Access blocked: app has not completed the Google verification process
-Error 403: access_denied
-```
-
-### 6.4 Create OAuth Client
-
-1. Go to:
-
-```txt
-APIs & Services -> Credentials
-```
-
-2. Click:
-
-```txt
-Create Credentials -> OAuth client ID
-```
-
-3. Application type:
-
-```txt
-Web application
-```
-
-4. Add authorized JavaScript origin:
-
-```txt
-http://localhost:5173
-```
-
-5. Add authorized redirect URI:
-
-```txt
-http://localhost:4000/connected-accounts/google/callback
-```
-
-6. Click Create.
-7. Copy:
-
-```txt
-Client ID
-Client Secret
-```
-
-### 6.5 Seed Google OAuth Config
-
-Put values into `backend/.env`:
-
-```env
-GOOGLE_CLIENT_ID="your-client-id"
-GOOGLE_CLIENT_SECRET="your-client-secret"
-GOOGLE_REDIRECT_URI="http://localhost:4000/connected-accounts/google/callback"
-```
-
-Then run:
+Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` in the relevant environment. The backend seed command stores the provider configuration encrypted in MySQL:
 
 ```bash
 cd backend
 npm run seed:google-config
 ```
 
-This stores the Google OAuth config as a global encrypted provider config in MySQL. Google sign-in uses the same config and automatically connects the first Drive account. Logged-in users can still click `Connect Drive` in Settings to add more Drive accounts.
+For Docker, the backend startup path can seed the same configuration when real Google credentials are present. Treat Google OAuth configuration as external provider authority; repository defaults do not create or verify a Google Cloud application for you.
 
-## 7. Run Development Servers
+## Architecture and integration boundary
 
-Start backend:
+```text
+Browser / API client
+        │
+        ▼
+React + Vite frontend
+        │
+        ▼
+Express + TypeScript backend
+   ├── authentication / API keys
+   ├── virtual storage metadata
+   ├── upload routing
+   ├── Google Drive adapter
+   └── S3-compatible adapter
+        │
+        ├────────► Google Drive
+        ├────────► S3-compatible object storage
+        └────────► MySQL via Prisma
+```
+
+`backend/` owns the application API, authentication, routing, provider adapters, and persistence integration. `frontend/` owns the operator-facing dashboard. Google, S3 providers, OAuth infrastructure, and MySQL remain external authorities; 9Drive should fail visibly when those dependencies are unavailable rather than presenting provider state as application-owned truth.
+
+## Operational and security notes
+
+For any non-local deployment, use HTTPS, production OAuth origins/redirect URIs, independently generated application and database secrets, restricted database exposure, backups, and provider credentials scoped to the intended account or bucket. Do not publish MySQL directly to an untrusted network. Vite embeds selected frontend environment values at build time, so rebuild the frontend when those values change.
+
+Google Drive uploads are private by provider default. The upload paths do not create an `anyone` permission or grant public writer access as a side effect of storing a file. Sharing is a separate product action and must retain explicit application authorization and revocation rather than broadening the provider ACL during upload.
+
+The upstream homepage and preview belong to the upstream project. They are **not** evidence that this ContextualWisdomLab fork is deployed from its current revision. This fork currently has no GitHub Release; bind any deployment to an exact reviewed commit and its current verification evidence.
+
+## Verification
+
+Before integrating or deploying a fork change, run the repository-owned checks relevant to the changed surface. The backend includes a dependency-free contract test that guards the private-upload and database-backup fail-closed boundaries introduced by this lane.
 
 ```bash
 cd backend
-npm run dev
-```
-
-Backend runs at:
-
-```txt
-http://localhost:4000
-```
-
-Start frontend:
-
-```bash
-cd frontend
-npm run dev
-```
-
-Frontend runs at:
-
-```txt
-http://localhost:5173
-```
-
-## Docker Deployment
-
-This repository includes Docker files for running MySQL, backend, and frontend together.
-
-Files:
-
-```txt
-docker-compose.yml
-.env.docker.example
-backend/Dockerfile
-frontend/Dockerfile
-frontend/nginx.conf
-```
-
-### 1. Prepare Docker Env
-
-Copy the example env file:
-
-```bash
-cp .env.docker.example .env
-```
-
-On Windows PowerShell:
-
-```powershell
-Copy-Item .env.docker.example .env
-```
-
-Edit `.env`:
-
-```env
-MYSQL_ROOT_PASSWORD=root
-MYSQL_DATABASE=9drive
-
-FRONTEND_URL=http://localhost:5173
-VITE_API_URL=http://localhost:4000
-VITE_RECAPTCHA_SITE_KEY=
-
-JWT_ACCESS_SECRET=replace-with-long-random-secret
-TOKEN_ENCRYPTION_KEY=replace-with-long-random-secret
-RECAPTCHA_SECRET_KEY=
-
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:4000/connected-accounts/google/callback
-```
-
-Captcha is disabled when either `VITE_RECAPTCHA_SITE_KEY` or `RECAPTCHA_SECRET_KEY` is empty.
-
-### 2. Start Containers
-
-```bash
-docker compose up -d --build
-```
-
-Services:
-
-```txt
-frontend: http://localhost:5173
-backend:  http://localhost:4000
-mysql:    localhost:3306
-```
-
-The backend container runs Prisma migrations automatically on startup:
-
-```txt
-npm run db:migrate:deploy
-```
-
-This applies pending migrations such as S3 storage support before the API starts, so deployments from an older database can update safely without dropping data.
-
-It also seeds the global Google OAuth config automatically when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set to real values in `.env`. If those values are blank or still placeholders, the backend still starts and logs a warning. Google connect/sign-in will be unavailable until you set real Google OAuth credentials and restart the stack:
-
-```bash
-docker compose up -d --build
-```
-
-### 3. Seed Google OAuth Config Manually
-
-Automatic Docker startup seeding is usually enough. If you update Google OAuth values while containers are already running, seed the global Google OAuth config manually:
-
-```bash
-docker compose exec backend npm run seed:google-config
-```
-
-This stores `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` from Docker env into MySQL as encrypted global config.
-
-### 4. View Logs
-
-```bash
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f mysql
-```
-
-### 5. Stop Containers
-
-```bash
-docker compose down
-```
-
-Remove database volume too:
-
-```bash
-docker compose down -v
-```
-
-### Docker Production Notes
-
-- Replace localhost URLs with production domain.
-- Update Google OAuth authorized JavaScript origin.
-- Update Google OAuth redirect URI.
-- Use strong `JWT_ACCESS_SECRET` and `TOKEN_ENCRYPTION_KEY`.
-- Do not expose MySQL port publicly in production.
-- Put frontend/backend behind HTTPS reverse proxy.
-- Rebuild frontend when `VITE_API_URL` changes because Vite embeds env at build time.
-- Rebuild frontend when `VITE_RECAPTCHA_SITE_KEY` changes because Vite embeds env at build time.
-
-### VPS Deployment (Step-by-Step)
-
-Follow these steps to deploy 9Drive to a VPS (such as Ubuntu/Debian) using Docker:
-
-#### 1. Install Docker & Docker Compose on your VPS
-```bash
-sudo apt update
-sudo apt install -y docker.io docker-compose
-sudo systemctl enable --now docker
-```
-
-#### 2. Clone the Repository
-```bash
-git clone https://github.com/your-github-username/9drive.git
-cd 9drive
-```
-
-#### 3. Setup the Production Environment
-Copy the example environment file to `.env`:
-```bash
-cp .env.docker.example .env
-```
-Edit the `.env` file (e.g., `nano .env`) and configure the values for your production VPS domain/IP:
-* **`FRONTEND_URL`**: Set to your public domain or VPS IP (e.g., `http://103.xxx.xxx.xxx:5173` or `https://9drive.yourdomain.com`).
-* **`VITE_API_URL`**: Set to your public backend URL (e.g., `http://103.xxx.xxx.xxx:4000` or `https://api.9drive.yourdomain.com`).
-* **`GOOGLE_REDIRECT_URI`**: Set to your public redirect callback URL (e.g., `http://103.xxx.xxx.xxx:4000/connected-accounts/google/callback`).
-* Set secure credentials for **`JWT_ACCESS_SECRET`** and **`TOKEN_ENCRYPTION_KEY`** (encryption key must be exactly 32 characters/bytes).
-* Add your **`GOOGLE_CLIENT_ID`** and **`GOOGLE_CLIENT_SECRET`**.
-
-#### 4. Deploy the Containers
-Run Docker Compose to build and start the database, backend, and frontend containers in the background:
-```bash
-docker compose up -d --build
-```
-
-#### 5. Seed the Google Configuration
-Initialize the encrypted Google configuration in the database:
-```bash
-docker compose exec backend npm run seed:google-config
-```
-
-#### 6. Add Authorized URIs in Google Cloud Console
-1. Go to **APIs & Services** -> **Credentials** in the Google Cloud Console.
-2. Edit your OAuth 2.0 Web Client.
-3. In **Authorized JavaScript origins**, add your frontend URL (e.g., `http://your-vps-ip:5173` or `https://9drive.yourdomain.com`).
-4. In **Authorized redirect URIs**, add your redirect URI (e.g., `http://your-vps-ip:4000/connected-accounts/google/callback` or `https://api.9drive.yourdomain.com/connected-accounts/google/callback`).
-5. Save changes.
-
-### Non-Docker Production Startup
-
-Run production migrations before starting the backend:
-
-```bash
-cd backend
-npm run db:migrate:deploy
-npm run start
-```
-
-Or use the combined command:
-
-```bash
-cd backend
-npm run start:deploy
-```
-
-`npm run db:migrate:deploy` uses Prisma production migrations and does not reset the database. If Prisma reports migration drift, stop the deploy and repair migration history first; do not run `prisma migrate reset` on production.
-
-## 8. Manual Test Flow
-
-1. Open frontend:
-
-```txt
-http://localhost:5173
-```
-
-2. Register a user with email/password and captcha, or click `Continue with Google and connect Drive`.
-3. If using Google sign-in, approve Drive access once and confirm `/settings` already shows the connected account.
-4. If using email/password, open `Settings`, click `Connect Drive`, approve access, and confirm the account appears.
-5. Open `Quota Tracker`.
-6. Confirm quota appears.
-7. Open `All Files`.
-8. Create nested virtual folders.
-9. Upload a file and confirm it appears under Google Drive root folder `9drive`.
-10. Add or remove a file manually inside Google Drive folder `9drive`, then click `Sync Drive` in All Files.
-11. Watch bottom-right upload progress.
-12. Right-click file row for actions:
-
-```txt
-View
-Download
-Rename
-Move to Folder
-Delete
-```
-
-## API Overview
-
-Auth:
-
-```txt
-POST /auth/register
-POST /auth/login
-GET /auth/google/url
-GET /auth/google/callback
-POST /auth/google/exchange
-POST /auth/refresh
-POST /auth/logout
-GET /auth/me
-```
-
-Google accounts:
-
-```txt
-GET /connected-accounts/google/connect-url
-GET /connected-accounts/google/callback
-GET /connected-accounts
-POST /connected-accounts/:id/sync-quota
-DELETE /connected-accounts/:id
-```
-
-Storage:
-
-```txt
-GET /storage/summary
-```
-
-Folders:
-
-```txt
-GET /folders
-GET /folders/recent?limit=4
-POST /folders
-DELETE /folders/:id
-```
-
-Files:
-
-```txt
-GET /files
-GET /files?folderId=<id>
-GET /files?q=<search>
-GET /files/shared-links
-GET /files/:id
-PATCH /files/:id
-PATCH /files/batch
-DELETE /files/batch
-POST /files/sync-google
-POST /files/:id/share
-DELETE /files/:id/share
-POST /files/:id/preview-token
-GET /files/:id/view-url
-GET /files/:id/download
-DELETE /files/:id
-GET /files/preview/:token
-```
-
-Uploads:
-
-```txt
-POST /uploads
-```
-
-Upload is `multipart/form-data`. Metadata fields should be appended before the file:
-
-```txt
-sizeBytes
-fileName
-mimeType
-folderId optional
-file
-```
-
-## Security Notes
-
-- Backend never stores uploaded files on disk.
-- Uploads are streamed through the backend to Google Drive folder `9drive`.
-- Google tokens are encrypted in MySQL.
-- Refresh tokens for app sessions are hashed in MySQL.
-- Google auth handoff tokens, public share tokens, and preview tokens are hashed before lookup/use.
-- `backend/.env` is ignored by git.
-- Do not expose `TOKEN_ENCRYPTION_KEY`, `JWT_ACCESS_SECRET`, `RECAPTCHA_SECRET_KEY`, OAuth client secrets, or raw share/preview/handoff tokens.
-
-## Production Notes
-
-- Replace localhost redirect URIs with production URLs.
-- Add production domain to Google OAuth authorized origins.
-- Set OAuth consent screen to production when ready.
-- Google may require verification for public apps.
-- Use strong secrets.
-- Put the backend behind HTTPS.
-- Consider secure cookies or stronger token storage for production.
-
-## Google OAuth Configuration via UI
-
-Instead of seeding Google credentials manually using `npm run seed:google-config`, you can set them up directly from the frontend dashboard:
-1. Log in to the dashboard.
-2. Go to **Settings** -> **Google Credentials**.
-3. Input your **Google Client ID**, **Google Client Secret**, and **Redirect URI** (e.g. `https://103.65.237.136.nip.io:4000/connected-accounts/google/callback`).
-4. Click **Save Configuration**.
-
-The config is automatically encrypted and saved into the database, enabling Google sign-in and Google Drive connections instantly.
-
-## Automated Updates & PM2 Management
-
-For native VPS setups running with PM2, 9Drive includes a fully automated system update trigger and log monitor in the **Settings** UI.
-
-### How it works
-1. When you trigger an update from the frontend dashboard, the backend triggers the `update.sh` script in the background.
-2. The script:
-   - Resets any local Git conflicts (`git reset --hard`) and pulls the latest changes.
-   - Installs dependencies and builds both backend and frontend.
-   - Deploys Prisma database migrations.
-   - Restarts the backend process using PM2 (`pm2 restart 9drive-backend`).
-3. You can monitor the real-time rebuild progress using the log viewer inside the Settings UI.
-
-### Manual update command
-If you want to update manually via the terminal, run:
-```bash
-./update.sh
-```
-Or run the commands individually:
-```bash
-git reset --hard
-git pull origin main
-cd backend && npm install && npx prisma generate && npm run build && npx prisma migrate deploy
-cd ../frontend && npm install && npm run build
-pm2 restart 9drive-backend
-```
-
-## Build
-
-Backend:
-
-```bash
-cd backend
+npm ci
+npm run test:contracts
 npm run build
 ```
 
-Frontend:
-
 ```bash
 cd frontend
+npm ci
 npm run build
 ```
+
+For Compose changes, also require `docker compose config` with non-empty required secrets and confirm the MySQL health dependency, Prisma migration, loopback-only frontend `http://localhost:5173`, loopback-only backend `http://localhost:4000`, same-origin `/api` proxy, and configured OAuth callback all agree.
+
+Provider-specific test scripts require real, appropriately scoped credentials and should not be treated as safe offline unit tests. GitHub Checks on the exact commit remain the authoritative hosted verification for a pull request.
+
+## Documentation
+
+- [`docs/index.md`](docs/index.md) — concise product and integration landing page.
+- [`docs/product-technical-gap-baseline.md`](docs/product-technical-gap-baseline.md) — current Context Map, core Prisma ERD, upload flow, release/provenance state, and commercialization gaps.
+- [`backend/.env.example`](backend/.env.example) — safe backend source-development configuration template.
+- [`frontend/.env.example`](frontend/.env.example) — frontend source-development configuration template.
+- [`backend/package.json`](backend/package.json) — backend scripts and current dependency surface.
+- [`frontend/package.json`](frontend/package.json) — frontend scripts and current dependency surface.
+- [`docker-compose.yml`](docker-compose.yml) — repository-owned MySQL/backend/frontend topology.
+- [`AGENTS.md`](AGENTS.md) — maintainer/automation guidance; not customer-facing product behavior.
+- [Upstream `zenhosta/9drive`](https://github.com/zenhosta/9drive) — original project, upstream history, and deeper upstream operations guidance.
+
+The former root README contained extensive upstream deployment, OAuth, API, update, and troubleshooting material. This fork landing intentionally keeps only code-current onboarding and trust boundaries; use current upstream documentation for upstream-specific operating procedure, and verify any procedure against this fork before applying it.
+
+## Contribution and support
+
+Keep changes inside 9Drive's storage-gateway boundary and preserve provider credential isolation. Open issues or pull requests in this fork for fork-specific defects and integrations; upstream product questions and upstream release support belong to `zenhosta/9drive`.
+
+When changing provider behavior, document which system owns the authoritative state, how credentials are handled, how failure is surfaced, and what evidence verifies the integration. Do not present an open PR, source version, upstream preview, or passing predecessor check as a fork release.
+
+## License and provenance
+
+This fork inherits the upstream **Apache License 2.0** repository grant and preserves the upstream copyright notice, `Copyright 2026 Zenhosta`. See [`LICENSE`](LICENSE).
+
+The fork was created before upstream commit `811d4a2` added the root Apache-2.0 file, so this documentation lane restores that upstream license text rather than inventing a new ContextualWisdomLab-exclusive grant. Upstream's current `backend/package.json` still declares `ISC` even after that Apache-2.0 repository-license commit, and this fork preserves the same inherited component metadata. Apache-2.0 and ISC are both commercial-use-permissive; the repository grant and backend package metadata are therefore documented separately rather than silently rewriting either one. Any future standalone backend-package publication should preserve the inherited package declaration unless upstream provenance or an explicit rights-backed change establishes a different package grant.
+
+npm dependencies, Google APIs, S3-compatible services, databases, container images, and other third-party software or services retain their own licenses and terms. The repository license does not override them.
