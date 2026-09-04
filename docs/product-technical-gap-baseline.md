@@ -1,7 +1,7 @@
 # 9Drive product and technical gap baseline
 
-**Snapshot:** 2026-09-02  
-**README-lane base:** `develop@fea4e4406c975b93d21a794c097e46fe56149989`  
+**Snapshot:** 2026-09-02
+**README-lane base:** `develop@fea4e4406c975b93d21a794c097e46fe56149989`
 **Audience:** operators, maintainers, security reviewers, and integrators
 
 This ledger records the current fork-local product boundary, storage/account authority, data model, provenance, release state, and buyer-visible gaps. It is dated evidence rather than a substitute for fresh exact-head PR/check/release reads.
