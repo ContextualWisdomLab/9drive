@@ -1,6 +1,6 @@
 # 9Drive product and technical gap baseline
 
-**Snapshot:** 2026-09-02
+**Snapshot:** 2026-09-07
 **README-lane base:** `develop@fea4e4406c975b93d21a794c097e46fe56149989`
 **Audience:** operators, maintainers, security reviewers, and integrators
 
