@@ -70,14 +70,17 @@ Use `docker compose down -v` only when you intentionally want to delete the loca
 
 The MySQL Compose topology in this branch is a **new-install path**, not an automatic in-place SQLite upgrade. The protected predecessor Compose configuration mounted `sqlite_data` at `/app/prisma` and pointed `DATABASE_URL` at `/app/prisma/dev.db`; this branch does not contain a validated SQLite-to-MySQL data converter.
 
-Before changing an existing SQLite-backed installation, keep the old exact application revision available and preserve the database bytes from the still-running legacy backend:
+Before changing an existing SQLite-backed installation, keep the old exact application revision available. Quiesce that revision, copy the complete Prisma directory so SQLite journal/WAL companions are preserved, and verify the copied database before changing code or volumes:
 
 ```bash
-docker compose cp backend:/app/prisma/dev.db ./9drive-legacy-dev.db
-shasum -a 256 ./9drive-legacy-dev.db
+docker compose stop backend
+mkdir -p ./9drive-legacy-prisma
+docker compose cp backend:/app/prisma/. ./9drive-legacy-prisma/
+sqlite3 -readonly ./9drive-legacy-prisma/dev.db 'PRAGMA integrity_check;'
+shasum -a 256 ./9drive-legacy-prisma/dev.db*
 ```
 
-Store that copy and digest outside the Compose volume before changing revisions or removing volumes. Do **not** start the MySQL topology expecting it to import the SQLite file. The built-in `/system/backup` and `/system/restore` endpoints remain file-database operations only; under MySQL they now return an explicit unsupported response instead of treating the server URL as a file path. A verified MySQL backup/restore procedure and SQLite-to-MySQL migration remain release-readiness work and must be completed before an existing installation is migrated in place.
+The integrity command must print `ok`. Keep the backend stopped until that result and the digest are recorded, then store the whole copied directory outside the Compose volume. Restart only the same exact legacy revision if you are not proceeding with migration. Do **not** start the MySQL topology expecting it to import the SQLite file. The built-in `/system/backup` and `/system/restore` endpoints remain file-database operations only and are not a validated live SQLite migration-backup mechanism; under MySQL they return an explicit unsupported response instead of treating the server URL as a file path. A verified MySQL backup/restore procedure and SQLite-to-MySQL migration remain release-readiness work and must be completed before an existing installation is migrated in place.
 
 ## Source development
 

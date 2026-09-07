@@ -10,6 +10,7 @@ import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.
 import { ensureGoogleAppFolder, getAuthedGoogleClient, syncGoogleQuota } from '../google/google.service.js'
 import { buildS3ObjectKey, getS3ConfigForAccount, syncS3Quota, uploadS3Object } from '../s3/s3.service.js'
 import { createAuditLog } from '../../utils/audit.js'
+import { buildGoogleUploadRequestBody } from './google-upload-contract.js'
 
 export const uploadRouter = Router()
 
@@ -216,7 +217,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
             }
           }
           const uploaded = await drive.files.create({
-            requestBody: { name: fileName, parents: [targetParentId] },
+            requestBody: buildGoogleUploadRequestBody(fileName, targetParentId),
             media: { mimeType: meta.mimeType, body: Readable.from(fileBuffer) },
             fields: 'id,name,mimeType,size',
           })
@@ -354,10 +355,7 @@ uploadRouter.post('/resumable/init', requireAuth, async (req: AuthRequest, res, 
     const initRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        name: body.fileName,
-        parents: [targetParentId]
-      })
+      body: JSON.stringify(buildGoogleUploadRequestBody(body.fileName, targetParentId))
     })
 
     if (!initRes.ok) {

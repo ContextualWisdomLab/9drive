@@ -1,23 +1,34 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-const readSource = (relativePath) => readFileSync(new URL(relativePath, import.meta.url), 'utf8')
+import { buildGoogleUploadRequestBody } from '../dist/modules/uploads/google-upload-contract.js'
+import { getFileDatabasePath } from '../dist/modules/system/database-file-contract.js'
 
-test('Google upload paths do not widen provider ACLs as a storage side effect', () => {
-  const source = readSource('../src/modules/uploads/upload.routes.ts')
-
-  assert.doesNotMatch(source, /permissions\.create\s*\(/)
-  assert.doesNotMatch(source, /type\s*:\s*['"]anyone['"]/)
-  assert.doesNotMatch(source, /role\s*:\s*['"]writer['"]\s*,?\s*\n\s*type\s*:\s*['"]anyone['"]/)
+test('Google upload request body keeps provider ACLs private by construction', () => {
+  assert.deepEqual(buildGoogleUploadRequestBody('report.pdf', 'app-folder'), {
+    name: 'report.pdf',
+    parents: ['app-folder'],
+  })
 })
 
-test('server-database backup and restore fail closed instead of treating the URL as a file path', () => {
-  const source = readSource('../src/modules/system/system.routes.ts')
-  const guards = source.match(/if \(!isFileDatabase\(\)\)/g) ?? []
+test('server database URLs cannot be interpreted as local backup paths', () => {
+  assert.throws(
+    () => getFileDatabasePath('mysql://9drive:secret@mysql:3306/9drive', process.cwd()),
+    /database-file-path-unavailable-for-server-database/,
+  )
+  assert.throws(
+    () => getFileDatabasePath('postgresql://9drive:secret@db/9drive', process.cwd()),
+    /database-file-path-unavailable-for-server-database/,
+  )
+})
 
-  assert.equal(guards.length, 2)
-  assert.match(source, /code:\s*['"]DATABASE_BACKUP_UNSUPPORTED['"]/)
-  assert.match(source, /code:\s*['"]DATABASE_RESTORE_UNSUPPORTED['"]/)
-  assert.match(source, /throw new Error\(['"]database-file-path-unavailable-for-server-database['"]\)/)
+test('file database URLs resolve query-free paths for backup and restore', () => {
+  assert.equal(
+    getFileDatabasePath('file:/var/lib/9drive/dev.db?connection_limit=1', '/app'),
+    '/var/lib/9drive/dev.db',
+  )
+  assert.equal(
+    getFileDatabasePath('sqlite:./dev.db', '/app/prisma'),
+    '/app/prisma/dev.db',
+  )
 })

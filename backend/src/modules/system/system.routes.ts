@@ -6,6 +6,7 @@ import { requireAuth } from '../../middleware/auth.middleware.js'
 import { prisma } from '../../config/prisma.js'
 import { decryptText, encryptText } from '../../utils/crypto.js'
 import Busboy from 'busboy'
+import { getFileDatabasePath, isFileDatabaseUrl } from './database-file-contract.js'
 
 export const systemRouter = Router()
 
@@ -311,30 +312,17 @@ systemRouter.post('/restore', requireAuth, (req, res, next) => {
 
 function isFileDatabase(): boolean {
   const dbUrl = process.env.DATABASE_URL || 'file:./dev.db'
-  return /^(sqlite|file):/.test(dbUrl)
+  return isFileDatabaseUrl(dbUrl)
 }
 
 function getDatabaseFilePath(): string {
   const dbUrl = process.env.DATABASE_URL || 'file:./dev.db'
-  if (!/^(sqlite|file):/.test(dbUrl)) {
-    throw new Error('database-file-path-unavailable-for-server-database')
+  let baseDir = path.resolve(process.cwd(), 'prisma')
+  if (!fs.existsSync(baseDir)) {
+    baseDir = path.resolve(process.cwd(), 'backend', 'prisma')
   }
-  let cleanPath = dbUrl.replace(/^(sqlite|file):/, '')
-
-  if (cleanPath.includes('?')) {
-    cleanPath = cleanPath.split('?')[0]
+  if (!fs.existsSync(baseDir)) {
+    baseDir = path.resolve(process.cwd(), '..', 'backend', 'prisma')
   }
-
-  if (!path.isAbsolute(cleanPath)) {
-    let baseDir = path.resolve(process.cwd(), 'prisma')
-    if (!fs.existsSync(baseDir)) {
-      baseDir = path.resolve(process.cwd(), 'backend', 'prisma')
-    }
-    if (!fs.existsSync(baseDir)) {
-      baseDir = path.resolve(process.cwd(), '..', 'backend', 'prisma')
-    }
-    return path.resolve(baseDir, cleanPath)
-  }
-
-  return cleanPath
+  return getFileDatabasePath(dbUrl, baseDir)
 }
