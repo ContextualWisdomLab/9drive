@@ -14,4 +14,6 @@ RUN npm run build && npx prisma generate
 
 EXPOSE 4000
 
+USER node
+
 CMD ["sh", "-c", "npm run db:migrate:deploy && npm run seed:google-config:docker && node dist/server.js"]
