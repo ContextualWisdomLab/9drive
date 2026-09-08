@@ -10,6 +10,7 @@ import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.
 import { ensureGoogleAppFolder, getAuthedGoogleClient, syncGoogleQuota } from '../google/google.service.js'
 import { buildS3ObjectKey, getS3ConfigForAccount, syncS3Quota, uploadS3Object } from '../s3/s3.service.js'
 import { createAuditLog } from '../../utils/audit.js'
+import { buildGoogleUploadRequestBody } from './google-upload-contract.js'
 
 export const uploadRouter = Router()
 
@@ -216,7 +217,7 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
             }
           }
           const uploaded = await drive.files.create({
-            requestBody: { name: fileName, parents: [targetParentId] },
+            requestBody: buildGoogleUploadRequestBody(fileName, targetParentId),
             media: { mimeType: meta.mimeType, body: Readable.from(fileBuffer) },
             fields: 'id,name,mimeType,size',
           })
@@ -224,20 +225,6 @@ export async function handleUpload(req: AuthRequest, res: Response, next: NextFu
           uploadedName = uploaded.data.name ?? fileName
           uploadedMimeType = uploaded.data.mimeType ?? meta.mimeType
           logUpload('google upload completed', { sessionId: session.id, accountId: account.id, fileName })
-
-          // Make the file public (anyone with link can edit/download)
-          try {
-            await drive.permissions.create({
-              fileId: providerFileId,
-              requestBody: {
-                role: 'writer',
-                type: 'anyone'
-              }
-            })
-            logUpload('google file permissions set to public writer', { sessionId: session.id, providerFileId })
-          } catch (err: any) {
-            console.error('Failed to make Google Drive file public:', err.message || err)
-          }
         }
 
         if (streamedBytes !== meta.sizeBytes) {
@@ -368,10 +355,7 @@ uploadRouter.post('/resumable/init', requireAuth, async (req: AuthRequest, res, 
     const initRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        name: body.fileName,
-        parents: [targetParentId]
-      })
+      body: JSON.stringify(buildGoogleUploadRequestBody(body.fileName, targetParentId))
     })
 
     if (!initRes.ok) {
@@ -478,7 +462,6 @@ uploadRouter.put('/resumable/chunk/:id', requireAuth, async (req: AuthRequest, r
       where: { id: session.targetConnectedAccountId, userId: req.user!.id }
     })
     const auth = await getAuthedGoogleClient(account)
-    const drive = google.drive({ version: 'v3', auth })
     const token = await auth.getAccessToken()
 
     // Stream chunk body from client to Google Drive resumable URI
@@ -501,19 +484,6 @@ uploadRouter.put('/resumable/chunk/:id', requireAuth, async (req: AuthRequest, r
     if (putRes.ok) {
       // Completed! Parse metadata
       const fileMeta = await putRes.json() as { id: string; name: string; mimeType: string }
-
-      // Make the file public (anyone with link can edit/download)
-      try {
-        await drive.permissions.create({
-          fileId: fileMeta.id,
-          requestBody: {
-            role: 'writer',
-            type: 'anyone'
-          }
-        })
-      } catch (err: any) {
-        console.error('Failed to make Google Drive resumable file public:', err.message || err)
-      }
 
       let existingFile = await prisma.file.findFirst({
         where: { providerFileId: fileMeta.id, userId: req.user!.id }

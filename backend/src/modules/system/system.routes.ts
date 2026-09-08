@@ -6,6 +6,7 @@ import { requireAuth } from '../../middleware/auth.middleware.js'
 import { prisma } from '../../config/prisma.js'
 import { decryptText, encryptText } from '../../utils/crypto.js'
 import Busboy from 'busboy'
+import { getFileDatabasePath, isFileDatabaseUrl } from './database-file-contract.js'
 
 export const systemRouter = Router()
 
@@ -202,6 +203,12 @@ systemRouter.post('/google-config', requireAuth, async (req, res, next) => {
 
 systemRouter.get('/backup', requireAuth, (req, res, next) => {
   try {
+    if (!isFileDatabase()) {
+      return res.status(501).json({
+        code: 'DATABASE_BACKUP_UNSUPPORTED',
+        message: 'The built-in backup endpoint supports only legacy file-backed databases. MySQL deployments require an operator-managed, verified database backup procedure.'
+      })
+    }
     const dbPath = getDatabaseFilePath()
     if (!fs.existsSync(dbPath)) {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'Database file not found.' })
@@ -217,6 +224,12 @@ systemRouter.get('/backup', requireAuth, (req, res, next) => {
 
 systemRouter.post('/restore', requireAuth, (req, res, next) => {
   try {
+    if (!isFileDatabase()) {
+      return res.status(501).json({
+        code: 'DATABASE_RESTORE_UNSUPPORTED',
+        message: 'The built-in restore endpoint supports only legacy file-backed databases. MySQL deployments require an operator-managed, verified database restore procedure.'
+      })
+    }
     const contentType = req.headers['content-type']
     if (!contentType?.includes('multipart/form-data')) {
       return res.status(400).json({ code: 'BAD_REQUEST', message: 'multipart/form-data required.' })
@@ -297,24 +310,19 @@ systemRouter.post('/restore', requireAuth, (req, res, next) => {
   }
 })
 
+function isFileDatabase(): boolean {
+  const dbUrl = process.env.DATABASE_URL || 'file:./dev.db'
+  return isFileDatabaseUrl(dbUrl)
+}
+
 function getDatabaseFilePath(): string {
   const dbUrl = process.env.DATABASE_URL || 'file:./dev.db'
-  let cleanPath = dbUrl.replace(/^(sqlite|file):/, '')
-
-  if (cleanPath.includes('?')) {
-    cleanPath = cleanPath.split('?')[0]
+  let baseDir = path.resolve(process.cwd(), 'prisma')
+  if (!fs.existsSync(baseDir)) {
+    baseDir = path.resolve(process.cwd(), 'backend', 'prisma')
   }
-
-  if (!path.isAbsolute(cleanPath)) {
-    let baseDir = path.resolve(process.cwd(), 'prisma')
-    if (!fs.existsSync(baseDir)) {
-      baseDir = path.resolve(process.cwd(), 'backend', 'prisma')
-    }
-    if (!fs.existsSync(baseDir)) {
-      baseDir = path.resolve(process.cwd(), '..', 'backend', 'prisma')
-    }
-    return path.resolve(baseDir, cleanPath)
+  if (!fs.existsSync(baseDir)) {
+    baseDir = path.resolve(process.cwd(), '..', 'backend', 'prisma')
   }
-
-  return cleanPath
+  return getFileDatabasePath(dbUrl, baseDir)
 }
